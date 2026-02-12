@@ -3,420 +3,473 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ZenPDF - Private Local PDF Tools</title>
-    <meta name="description" content="Secure, serverless PDF tools. Merge, Split, and Convert Images to PDF locally. No file uploads.">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <title>ZenPDF Pro - All-in-One PDF Tools</title>
+    <meta name="description" content="Merge, Split, Convert, and Edit PDFs locally. Serverless, private, and free.">
+    
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+
     <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="https://unpkg.com/downloadjs@1.4.7/download.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
     <style>
         :root {
-            --bg-color: #0f172a; /* Slate 900 */
-            --card-bg: #1e293b; /* Slate 800 */
-            --accent: #38bdf8; /* Sky 400 */
-            --text-main: #f1f5f9;
+            --bg: #0f172a;
+            --card: #1e293b;
+            --accent: #6366f1; /* Indigo */
+            --accent-hover: #4f46e5;
+            --text: #f8fafc;
             --text-muted: #94a3b8;
-            --success: #10b981;
             --border: #334155;
+            --success: #10b981;
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
-            font-family: 'Inter', sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-main);
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
             display: flex;
             flex-direction: column;
-            min-height: 100vh;
         }
 
-        /* --- Header --- */
+        /* HEADER */
         header {
-            padding: 2rem 1rem;
+            padding: 2rem;
             text-align: center;
+            border-bottom: 1px solid var(--border);
+            background: rgba(15, 23, 42, 0.95);
         }
-
-        h1 { font-weight: 300; letter-spacing: -1px; font-size: 2.5rem; margin-bottom: 0.5rem; }
-        h1 span { color: var(--accent); font-weight: 600; }
-        .tagline { color: var(--text-muted); font-size: 0.9rem; }
-        .privacy-badge {
-            display: inline-block;
-            margin-top: 10px;
+        h1 { font-size: 2rem; margin-bottom: 0.5rem; letter-spacing: -0.5px; }
+        h1 span { color: var(--accent); }
+        .badge {
+            background: rgba(99, 102, 241, 0.1);
+            color: var(--accent);
             padding: 4px 12px;
-            background: rgba(16, 185, 129, 0.1);
-            color: var(--success);
             border-radius: 20px;
-            font-size: 0.75rem;
-            border: 1px solid rgba(16, 185, 129, 0.2);
+            font-size: 0.8rem;
+            border: 1px solid rgba(99, 102, 241, 0.2);
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
         }
 
-        /* --- Main Container --- */
+        /* MAIN LAYOUT */
         main {
-            max-width: 800px;
-            margin: 0 auto;
-            width: 100%;
-            padding: 1rem;
             flex: 1;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+            width: 100%;
+            display: grid;
+            grid-template-columns: 250px 1fr;
+            gap: 2rem;
         }
 
-        /* --- Tabs --- */
-        .tabs {
+        @media(max-width: 768px) {
+            main { grid-template-columns: 1fr; }
+        }
+
+        /* SIDEBAR NAV */
+        .sidebar {
             display: flex;
-            justify-content: center;
-            gap: 10px;
-            margin-bottom: 2rem;
-            flex-wrap: wrap;
+            flex-direction: column;
+            gap: 0.5rem;
         }
-
-        .tab-btn {
+        .nav-btn {
             background: transparent;
-            border: 1px solid var(--border);
+            border: none;
             color: var(--text-muted);
-            padding: 10px 20px;
+            padding: 1rem;
+            text-align: left;
             border-radius: 8px;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: all 0.2s;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
+        .nav-btn:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+        .nav-btn.active { background: var(--accent); color: white; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); }
 
-        .tab-btn.active, .tab-btn:hover {
-            border-color: var(--accent);
-            color: var(--accent);
-            background: rgba(56, 189, 248, 0.05);
-        }
-
-        /* --- Tools Area --- */
-        .tool-section {
-            display: none;
-            background: var(--card-bg);
+        /* TOOLS AREA */
+        .tool-panel {
+            background: var(--card);
             border-radius: 16px;
-            padding: 2rem;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            padding: 2.5rem;
             border: 1px solid var(--border);
-            animation: fadeIn 0.4s ease;
+            display: none;
+            animation: fadeUp 0.3s ease;
         }
+        .tool-panel.active { display: block; }
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-        .tool-section.active { display: block; }
+        h2 { font-size: 1.5rem; margin-bottom: 1rem; color: var(--text); }
+        p.desc { color: var(--text-muted); margin-bottom: 2rem; line-height: 1.6; }
 
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
-
-        /* --- File Drop Zone --- */
+        /* UI ELEMENTS */
         .drop-zone {
             border: 2px dashed var(--border);
             border-radius: 12px;
-            padding: 3rem 1rem;
+            padding: 3rem;
             text-align: center;
             cursor: pointer;
-            transition: all 0.3s;
-            margin-bottom: 1.5rem;
-            position: relative;
+            transition: 0.3s;
+            background: rgba(255,255,255,0.01);
         }
-
-        .drop-zone:hover { border-color: var(--accent); background: rgba(56, 189, 248, 0.02); }
-        .drop-zone input { position: absolute; width: 100%; height: 100%; top: 0; left: 0; opacity: 0; cursor: pointer; }
-        .drop-icon { font-size: 3rem; color: var(--text-muted); margin-bottom: 1rem; }
+        .drop-zone:hover { border-color: var(--accent); background: rgba(99, 102, 241, 0.05); }
+        .drop-zone i { font-size: 2.5rem; color: var(--text-muted); margin-bottom: 1rem; }
         
-        /* --- File List --- */
-        .file-list { margin-bottom: 1.5rem; text-align: left; }
-        .file-item {
-            background: rgba(255,255,255,0.03);
-            padding: 10px;
-            margin-bottom: 8px;
-            border-radius: 6px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 0.9rem;
-        }
-        .remove-file { color: #ef4444; cursor: pointer; padding: 5px; }
-
-        /* --- Controls --- */
-        .controls { text-align: center; }
-        .btn-primary {
+        .btn {
             background: var(--accent);
-            color: #000;
+            color: white;
             border: none;
-            padding: 12px 30px;
-            border-radius: 30px;
+            padding: 12px 24px;
+            border-radius: 8px;
             font-weight: 600;
             cursor: pointer;
-            font-size: 1rem;
-            transition: transform 0.2s;
+            margin-top: 1rem;
+            width: 100%;
+            transition: 0.2s;
         }
-        .btn-primary:hover { transform: scale(1.05); }
-        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn:hover:not(:disabled) { background: var(--accent-hover); }
 
-        /* --- Footer --- */
+        .file-list { margin-top: 1rem; }
+        .file-item { 
+            background: rgba(0,0,0,0.2); 
+            padding: 10px; 
+            border-radius: 6px; 
+            margin-bottom: 5px; 
+            font-size: 0.9rem; 
+            display: flex; 
+            justify-content: space-between;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            padding: 12px;
+            border-radius: 8px;
+            color: var(--text);
+            margin-bottom: 1rem;
+        }
+
+        /* FOOTER */
         footer {
             text-align: center;
             padding: 2rem;
-            font-size: 0.85rem;
             color: var(--text-muted);
+            font-size: 0.9rem;
             border-top: 1px solid var(--border);
-            margin-top: auto;
         }
-        
-        .heart-beat {
-            color: #ef4444;
-            display: inline-block;
-            animation: beat 1s infinite;
-        }
-
-        @keyframes beat {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.2); }
-        }
-        
-        /* Specific Inputs */
-        input[type="text"], input[type="number"] {
-            background: var(--bg-color);
-            border: 1px solid var(--border);
-            color: var(--text-main);
-            padding: 10px;
-            border-radius: 6px;
-            width: 100%;
-            margin-top: 10px;
-        }
+        a { color: var(--accent); text-decoration: none; }
     </style>
 </head>
 <body>
 
     <header>
-        <h1>Zen<span>PDF</span></h1>
-        <p class="tagline">The Minimalist, Private PDF Tool Suite</p>
-        <div class="privacy-badge"><i class="fas fa-shield-alt"></i> 100% Client-Side. Files never leave your browser.</div>
+        <h1>ZenPDF <span>Pro</span></h1>
+        <div class="badge"><i class="fas fa-lock"></i> 100% Client-Side Privacy</div>
     </header>
 
     <main>
-        <div class="tabs">
-            <button class="tab-btn active" onclick="switchTab('merge')"><i class="fas fa-layer-group"></i> Merge</button>
-            <button class="tab-btn" onclick="switchTab('split')"><i class="fas fa-cut"></i> Split</button>
-            <button class="tab-btn" onclick="switchTab('img2pdf')"><i class="fas fa-image"></i> Images to PDF</button>
+        <div class="sidebar">
+            <button class="nav-btn active" onclick="showTool('merge')"><i class="fas fa-layer-group"></i> Merge PDF</button>
+            <button class="nav-btn" onclick="showTool('split')"><i class="fas fa-cut"></i> Split PDF</button>
+            <button class="nav-btn" onclick="showTool('img2pdf')"><i class="fas fa-images"></i> Images to PDF</button>
+            <button class="nav-btn" onclick="showTool('pdf2img')"><i class="fas fa-image"></i> PDF to JPG</button>
+            <button class="nav-btn" onclick="showTool('excel2pdf')"><i class="fas fa-file-excel"></i> Excel to PDF</button>
+            <button class="nav-btn" onclick="showTool('watermark')"><i class="fas fa-stamp"></i> Watermark / Edit</button>
         </div>
 
-        <div id="merge-tool" class="tool-section active">
-            <div class="drop-zone">
-                <i class="fas fa-file-pdf drop-icon"></i>
-                <p>Drag & Drop PDF files here or click to select</p>
-                <input type="file" id="merge-inputs" multiple accept=".pdf" onchange="handleMergeFiles(this.files)">
-            </div>
-            <div id="merge-list" class="file-list"></div>
-            <div class="controls">
-                <button id="merge-btn" class="btn-primary" onclick="mergePDFs()" disabled>Merge PDFs Now</button>
-            </div>
-        </div>
+        <div class="content">
 
-        <div id="split-tool" class="tool-section">
-            <div class="drop-zone">
-                <i class="fas fa-file-import drop-icon"></i>
-                <p>Select ONE PDF file to split</p>
-                <input type="file" id="split-input" accept=".pdf" onchange="handleSplitFile(this.files)">
+            <div id="merge" class="tool-panel active">
+                <h2>Merge PDFs</h2>
+                <p class="desc">Combine multiple PDF files into one single document. Drag & drop files in the order you want them.</p>
+                <div class="drop-zone" onclick="document.getElementById('m-input').click()">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <p>Click to select PDF files</p>
+                    <input type="file" id="m-input" hidden multiple accept=".pdf" onchange="handleMergeFiles(this.files)">
+                </div>
+                <div id="m-list" class="file-list"></div>
+                <button id="m-btn" class="btn" disabled onclick="executeMerge()">Merge Files</button>
             </div>
-            <div id="split-file-info" class="file-list"></div>
-            <div id="split-options" style="display:none; margin-bottom: 20px;">
-                <label style="font-size: 0.9rem; color: var(--text-muted);">Enter page numbers to extract (e.g., "1,3,5-7"):</label>
-                <input type="text" id="page-ranges" placeholder="e.g. 1-2, 5">
-                <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 5px;">Leave empty to extract all pages as separate files (ZIP).</p>
-            </div>
-            <div class="controls">
-                <button id="split-btn" class="btn-primary" onclick="splitPDF()" disabled>Split PDF</button>
-            </div>
-        </div>
 
-        <div id="img2pdf-tool" class="tool-section">
-            <div class="drop-zone">
-                <i class="fas fa-images drop-icon"></i>
-                <p>Select Images (JPG, PNG)</p>
-                <input type="file" id="img-inputs" multiple accept="image/png, image/jpeg" onchange="handleImgFiles(this.files)">
+            <div id="split" class="tool-panel">
+                <h2>Split PDF</h2>
+                <p class="desc">Extract pages from a PDF document.</p>
+                <div class="drop-zone" onclick="document.getElementById('s-input').click()">
+                    <i class="fas fa-file-pdf"></i>
+                    <p>Select PDF to Split</p>
+                    <input type="file" id="s-input" hidden accept=".pdf" onchange="handleSplitFile(this.files)">
+                </div>
+                <div id="s-list" class="file-list"></div>
+                <div style="margin-top: 1rem;">
+                    <label>Pages to Extract (e.g. 1,3,5-7):</label>
+                    <input type="text" id="s-range" placeholder="1-3">
+                </div>
+                <button id="s-btn" class="btn" disabled onclick="executeSplit()">Split PDF</button>
             </div>
-            <div id="img-list" class="file-list"></div>
-            <div class="controls">
-                <button id="img-btn" class="btn-primary" onclick="convertImgToPDF()" disabled>Convert to PDF</button>
+
+            <div id="img2pdf" class="tool-panel">
+                <h2>Images to PDF</h2>
+                <p class="desc">Convert JPG or PNG images into a single PDF document.</p>
+                <div class="drop-zone" onclick="document.getElementById('i-input').click()">
+                    <i class="fas fa-image"></i>
+                    <p>Select Images</p>
+                    <input type="file" id="i-input" hidden multiple accept="image/*" onchange="handleImgFiles(this.files)">
+                </div>
+                <div id="i-list" class="file-list"></div>
+                <button id="i-btn" class="btn" disabled onclick="executeImgToPdf()">Convert to PDF</button>
             </div>
+
+            <div id="pdf2img" class="tool-panel">
+                <h2>PDF to JPG</h2>
+                <p class="desc">Convert each page of a PDF into a high-quality JPG image. Downloads as a ZIP file.</p>
+                <div class="drop-zone" onclick="document.getElementById('p2i-input').click()">
+                    <i class="fas fa-file-image"></i>
+                    <p>Select PDF</p>
+                    <input type="file" id="p2i-input" hidden accept=".pdf" onchange="handleP2IFile(this.files)">
+                </div>
+                <div id="p2i-list" class="file-list"></div>
+                <button id="p2i-btn" class="btn" disabled onclick="executePdfToImg()">Convert to JPGs</button>
+            </div>
+
+            <div id="excel2pdf" class="tool-panel">
+                <h2>Excel to PDF</h2>
+                <p class="desc">Convert XLSX spreadsheets to PDF tables instantly.</p>
+                <div class="drop-zone" onclick="document.getElementById('xl-input').click()">
+                    <i class="fas fa-file-excel"></i>
+                    <p>Select Excel File (.xlsx)</p>
+                    <input type="file" id="xl-input" hidden accept=".xlsx, .xls" onchange="handleXlFile(this.files)">
+                </div>
+                <div id="xl-list" class="file-list"></div>
+                <button id="xl-btn" class="btn" disabled onclick="executeExcelToPdf()">Convert to PDF</button>
+            </div>
+
+            <div id="watermark" class="tool-panel">
+                <h2>Add Watermark / Text</h2>
+                <p class="desc">Stamp text on every page of your PDF.</p>
+                <div class="drop-zone" onclick="document.getElementById('w-input').click()">
+                    <i class="fas fa-stamp"></i>
+                    <p>Select PDF</p>
+                    <input type="file" id="w-input" hidden accept=".pdf" onchange="handleWatermarkFile(this.files)">
+                </div>
+                <div id="w-list" class="file-list"></div>
+                <div style="margin-top: 1rem;">
+                    <label>Watermark Text:</label>
+                    <input type="text" id="w-text" placeholder="e.g. CONFIDENTIAL">
+                </div>
+                <button id="w-btn" class="btn" disabled onclick="executeWatermark()">Apply Watermark</button>
+            </div>
+
         </div>
     </main>
 
     <footer>
-        <p>Made with <span class="heart-beat">❤</span> by Harsha Varthan E P</p>
-        <p style="margin-top: 10px; font-size: 0.75rem; opacity: 0.5;">
-            <a href="#" style="color: inherit; text-decoration: none;">Support this project</a>
-        </p>
+        <p>Built with <i class="fas fa-heart" style="color: #ef4444;"></i> by Harsha Varthan E P</p>
+        <p style="margin-top: 10px; font-size: 0.8rem;">Note: Complex conversions (like Word layout) require servers. This tool focuses on privacy-first, client-side tasks.</p>
     </footer>
 
     <script>
-        const { PDFDocument } = PDFLib;
+        // --- GLOBAL SETUP ---
+        const { PDFDocument, rgb, degrees } = PDFLib;
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 
-        // --- STATE ---
-        let mergeFiles = [];
-        let splitFile = null;
-        let imgFiles = [];
+        let files = { merge: [], split: null, img: [], pdf2img: null, excel: null, watermark: null };
 
-        // --- TABS LOGIC ---
-        function switchTab(tab) {
-            document.querySelectorAll('.tool-section').forEach(el => el.classList.remove('active'));
-            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+        function showTool(id) {
+            document.querySelectorAll('.tool-panel').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
             
-            if(tab === 'merge') {
-                document.getElementById('merge-tool').classList.add('active');
-                document.querySelectorAll('.tab-btn')[0].classList.add('active');
-            } else if(tab === 'split') {
-                document.getElementById('split-tool').classList.add('active');
-                document.querySelectorAll('.tab-btn')[1].classList.add('active');
-            } else {
-                document.getElementById('img2pdf-tool').classList.add('active');
-                document.querySelectorAll('.tab-btn')[2].classList.add('active');
-            }
+            // Highlight button (simple logic for now)
+            const btns = document.querySelectorAll('.nav-btn');
+            if(id === 'merge') btns[0].classList.add('active');
+            if(id === 'split') btns[1].classList.add('active');
+            if(id === 'img2pdf') btns[2].classList.add('active');
+            if(id === 'pdf2img') btns[3].classList.add('active');
+            if(id === 'excel2pdf') btns[4].classList.add('active');
+            if(id === 'watermark') btns[5].classList.add('active');
         }
 
-        // --- MERGE LOGIC ---
-        function handleMergeFiles(files) {
-            mergeFiles = [...mergeFiles, ...Array.from(files)];
-            renderMergeList();
-            updateMergeBtn();
+        // --- MERGE ---
+        function handleMergeFiles(f) {
+            files.merge = [...files.merge, ...Array.from(f)];
+            document.getElementById('m-list').innerHTML = files.merge.map(f => `<div class="file-item">${f.name}</div>`).join('');
+            document.getElementById('m-btn').disabled = files.merge.length < 2;
         }
-
-        function renderMergeList() {
-            const list = document.getElementById('merge-list');
-            list.innerHTML = '';
-            mergeFiles.forEach((file, index) => {
-                list.innerHTML += `
-                    <div class="file-item">
-                        <span>${file.name}</span>
-                        <i class="fas fa-times remove-file" onclick="removeMergeFile(${index})"></i>
-                    </div>`;
-            });
-        }
-
-        function removeMergeFile(index) {
-            mergeFiles.splice(index, 1);
-            renderMergeList();
-            updateMergeBtn();
-        }
-
-        function updateMergeBtn() {
-            document.getElementById('merge-btn').disabled = mergeFiles.length < 2;
-        }
-
-        async function mergePDFs() {
-            const btn = document.getElementById('merge-btn');
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
-            btn.disabled = true;
-
+        async function executeMerge() {
+            const btn = document.getElementById('m-btn');
+            btn.innerHTML = 'Processing...';
             try {
                 const mergedPdf = await PDFDocument.create();
-                for (const file of mergeFiles) {
-                    const arrayBuffer = await file.arrayBuffer();
-                    const pdf = await PDFDocument.load(arrayBuffer);
-                    const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
-                    copiedPages.forEach((page) => mergedPdf.addPage(page));
+                for (const file of files.merge) {
+                    const pdf = await PDFDocument.load(await file.arrayBuffer());
+                    const pages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
+                    pages.forEach(p => mergedPdf.addPage(p));
                 }
                 const pdfBytes = await mergedPdf.save();
-                download(pdfBytes, "Zen_Merged.pdf", "application/pdf");
-            } catch (err) {
-                alert("Error merging files. Ensure all are valid PDFs.");
-                console.error(err);
-            }
-
-            btn.innerHTML = 'Merge PDFs Now';
-            btn.disabled = false;
+                download(pdfBytes, "merged_document.pdf", "application/pdf");
+            } catch(e) { alert(e); }
+            btn.innerHTML = 'Merge Files';
         }
 
-        // --- SPLIT LOGIC ---
-        function handleSplitFile(files) {
-            if (files.length > 0) {
-                splitFile = files[0];
-                document.getElementById('split-file-info').innerHTML = `
-                    <div class="file-item" style="border: 1px solid var(--accent);">
-                        <span><i class="fas fa-file-pdf"></i> ${splitFile.name}</span>
-                    </div>`;
-                document.getElementById('split-options').style.display = 'block';
-                document.getElementById('split-btn').disabled = false;
-            }
+        // --- SPLIT ---
+        function handleSplitFile(f) {
+            files.split = f[0];
+            document.getElementById('s-list').innerHTML = `<div class="file-item">${f[0].name}</div>`;
+            document.getElementById('s-btn').disabled = false;
         }
-
-        async function splitPDF() {
-            if (!splitFile) return;
-            const btn = document.getElementById('split-btn');
-            const rangeInput = document.getElementById('page-ranges').value;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+        async function executeSplit() {
+            const range = document.getElementById('s-range').value;
+            if(!range) return alert('Enter page numbers (e.g. 1-3)');
             
+            const btn = document.getElementById('s-btn');
+            btn.innerHTML = 'Processing...';
             try {
-                const arrayBuffer = await splitFile.arrayBuffer();
-                const pdfDoc = await PDFDocument.load(arrayBuffer);
-                const totalPages = pdfDoc.getPageCount();
-
-                // Simple parser for ranges like "1, 3-5"
-                let pagesToExtract = new Set();
+                const pdf = await PDFDocument.load(await files.split.arrayBuffer());
+                const newPdf = await PDFDocument.create();
+                const total = pdf.getPageCount();
                 
-                if (rangeInput.trim() === "") {
-                    // Extract all pages individually logic would go here (complex for single file without JSZip)
-                    // For this Micro-App, we will default to extracting the FIRST PAGE as a demo or specific range
-                    alert("Please specify page numbers (e.g., '1-3'). Bulk extraction coming in v2!");
-                    btn.innerHTML = 'Split PDF';
-                    return; 
-                }
-
-                const parts = rangeInput.split(',');
-                parts.forEach(part => {
-                    if (part.includes('-')) {
-                        const [start, end] = part.split('-').map(Number);
-                        for (let i = start; i <= end; i++) pagesToExtract.add(i - 1); // 0-based index
-                    } else {
-                        pagesToExtract.add(Number(part) - 1);
-                    }
+                // Parse range
+                let indices = [];
+                range.split(',').forEach(part => {
+                    if(part.includes('-')) {
+                        let [s, e] = part.split('-').map(Number);
+                        for(let i=s; i<=e; i++) indices.push(i-1);
+                    } else { indices.push(Number(part)-1); }
                 });
 
-                const newPdf = await PDFDocument.create();
-                const indices = Array.from(pagesToExtract).filter(i => i >= 0 && i < totalPages);
+                const pages = await newPdf.copyPages(pdf, indices.filter(i => i >= 0 && i < total));
+                pages.forEach(p => newPdf.addPage(p));
                 
-                if (indices.length === 0) throw new Error("No valid pages selected");
-
-                const copiedPages = await newPdf.copyPages(pdfDoc, indices);
-                copiedPages.forEach(page => newPdf.addPage(page));
-
-                const pdfBytes = await newPdf.save();
-                download(pdfBytes, `Zen_Split_${rangeInput}.pdf`, "application/pdf");
-
-            } catch (err) {
-                alert("Error: " + err.message);
-            }
+                download(await newPdf.save(), "split_pages.pdf", "application/pdf");
+            } catch(e) { alert("Invalid page range or file."); }
             btn.innerHTML = 'Split PDF';
         }
 
-        // --- IMG TO PDF LOGIC ---
-        function handleImgFiles(files) {
-            imgFiles = [...imgFiles, ...Array.from(files)];
-            const list = document.getElementById('img-list');
-            list.innerHTML = '';
-            imgFiles.forEach((file) => {
-                list.innerHTML += `<div class="file-item"><span>${file.name}</span></div>`;
-            });
-            document.getElementById('img-btn').disabled = imgFiles.length === 0;
+        // --- IMG TO PDF ---
+        function handleImgFiles(f) {
+            files.img = [...files.img, ...Array.from(f)];
+            document.getElementById('i-list').innerHTML = files.img.map(f => `<div class="file-item">${f.name}</div>`).join('');
+            document.getElementById('i-btn').disabled = false;
+        }
+        async function executeImgToPdf() {
+            const btn = document.getElementById('i-btn');
+            btn.innerHTML = 'Processing...';
+            const pdfDoc = await PDFDocument.create();
+            for(const f of files.img) {
+                const img = f.type.includes('png') ? await pdfDoc.embedPng(await f.arrayBuffer()) : await pdfDoc.embedJpg(await f.arrayBuffer());
+                const page = pdfDoc.addPage([img.width, img.height]);
+                page.drawImage(img, { x:0, y:0, width: img.width, height: img.height });
+            }
+            download(await pdfDoc.save(), "images_converted.pdf", "application/pdf");
+            btn.innerHTML = 'Convert to PDF';
         }
 
-        async function convertImgToPDF() {
-            const btn = document.getElementById('img-btn');
-            btn.innerHTML = 'Processing...';
+        // --- PDF TO JPG (ZIP) ---
+        function handleP2IFile(f) {
+            files.pdf2img = f[0];
+            document.getElementById('p2i-list').innerHTML = `<div class="file-item">${f[0].name}</div>`;
+            document.getElementById('p2i-btn').disabled = false;
+        }
+        async function executePdfToImg() {
+            const btn = document.getElementById('p2i-btn');
+            btn.innerHTML = 'Processing (This may take time)...';
+            
             try {
-                const pdfDoc = await PDFDocument.create();
-                for (const file of imgFiles) {
-                    const arrayBuffer = await file.arrayBuffer();
-                    let image;
-                    if (file.type === 'image/jpeg') {
-                        image = await pdfDoc.embedJpg(arrayBuffer);
-                    } else {
-                        image = await pdfDoc.embedPng(arrayBuffer);
-                    }
-                    const page = pdfDoc.addPage([image.width, image.height]);
-                    page.drawImage(image, { x: 0, y: 0, width: image.width, height: image.height });
+                const data = await files.pdf2img.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument(data).promise;
+                const zip = new JSZip();
+
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const viewport = page.getViewport({ scale: 1.5 }); // 1.5 scale for quality
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+
+                    await page.render({ canvasContext: context, viewport: viewport }).promise;
+                    
+                    // Add to zip
+                    const imgData = canvas.toDataURL('image/jpeg').split(',')[1];
+                    zip.file(`page_${i}.jpg`, imgData, {base64: true});
                 }
-                const pdfBytes = await pdfDoc.save();
-                download(pdfBytes, "Zen_Images.pdf", "application/pdf");
-            } catch (err) {
-                alert("Only JPG and PNG supported.");
-            }
-            btn.innerHTML = 'Convert to PDF';
+
+                const content = await zip.generateAsync({type:"blob"});
+                download(content, "pdf_images.zip", "application/zip");
+            } catch(e) { alert("Error converting PDF."); console.log(e); }
+            btn.innerHTML = 'Convert to JPGs';
+        }
+
+        // --- EXCEL TO PDF ---
+        function handleXlFile(f) {
+            files.excel = f[0];
+            document.getElementById('xl-list').innerHTML = `<div class="file-item">${f[0].name}</div>`;
+            document.getElementById('xl-btn').disabled = false;
+        }
+        function executeExcelToPdf() {
+            const btn = document.getElementById('xl-btn');
+            btn.innerHTML = 'Processing...';
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, {type: 'array'});
+                const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                const jsonData = XLSX.utils.sheet_to_json(firstSheet, {header: 1});
+
+                // Use jsPDF
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+                doc.autoTable({ head: [jsonData[0]], body: jsonData.slice(1) });
+                doc.save('excel_converted.pdf');
+                btn.innerHTML = 'Convert to PDF';
+            };
+            reader.readAsArrayBuffer(files.excel);
+        }
+
+        // --- WATERMARK ---
+        function handleWatermarkFile(f) {
+            files.watermark = f[0];
+            document.getElementById('w-list').innerHTML = `<div class="file-item">${f[0].name}</div>`;
+            document.getElementById('w-btn').disabled = false;
+        }
+        async function executeWatermark() {
+            const text = document.getElementById('w-text').value;
+            if(!text) return alert("Enter watermark text");
+            
+            const btn = document.getElementById('w-btn');
+            btn.innerHTML = 'Processing...';
+
+            const pdf = await PDFDocument.load(await files.watermark.arrayBuffer());
+            const pages = pdf.getPages();
+            pages.forEach(p => {
+                const { width, height } = p.getSize();
+                p.drawText(text, {
+                    x: 50,
+                    y: height / 2,
+                    size: 50,
+                    color: rgb(0.7, 0.7, 0.7),
+                    rotate: degrees(45),
+                    opacity: 0.5
+                });
+            });
+            
+            download(await pdf.save(), "watermarked.pdf", "application/pdf");
+            btn.innerHTML = 'Apply Watermark';
         }
     </script>
 </body>
