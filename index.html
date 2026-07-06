@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ZenPDF — Every PDF tool, one place</title>
 <meta name="description" content="Edit, organize, merge, split, watermark and convert PDFs — 100% in your browser. Your files never leave your device.">
 
@@ -348,8 +348,7 @@ input[type=range]{width:100%;accent-color:var(--ink)}
   font-size:.78rem;font-weight:600;width:auto;color:var(--ink);font-family:inherit;
 }
 .bar-spacer{flex:1}
-.editor-pages{display:flex;flex-direction:column;gap:26px;align-items:flex-start;padding-bottom:40px;overflow-x:auto}
-.editor-pages>*{margin-left:auto;margin-right:auto}
+.editor-pages{display:flex;flex-direction:column;gap:26px;align-items:center;padding-bottom:40px;overflow-x:auto}
 .page-holder{
   position:relative;box-shadow:var(--shadow-md);border-radius:4px;
   background:#fff;flex-shrink:0;
@@ -426,129 +425,11 @@ footer{
 }
 footer i{margin-right:5px}
 
-
-/* ============ V2 REFINEMENTS — motion, drag & drop, sheets, lift tool ============ */
-button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
-.tool-btn:active,.chip-btn:active,.icon-btn:active,.action-card:active{transform:scale(.94)}
-.tool-btn,.chip-btn,.icon-btn{transition:background .18s var(--ease),color .18s var(--ease),transform .12s var(--ease),border-color .18s var(--ease)}
-
-/* skeleton loaders */
-.skel-page{width:min(660px,90vw);aspect-ratio:1/1.35;border-radius:6px;box-shadow:var(--shadow-sm);
-  background:linear-gradient(100deg,var(--hover) 40%,var(--surface) 50%,var(--hover) 60%);
-  background-size:200% 100%;animation:shimmer 1.15s linear infinite}
-.skel-thumb{aspect-ratio:3/4.4;border-radius:var(--radius-sm);border:1.5px solid var(--line);
-  background:linear-gradient(100deg,var(--hover) 40%,var(--surface) 50%,var(--hover) 60%);
-  background-size:200% 100%;animation:shimmer 1.15s linear infinite}
-@keyframes shimmer{to{background-position:-200% 0}}
-
-/* duplicate handle on selected overlay objects */
-.ov-dup{
-  position:absolute;top:-11px;right:17px;width:22px;height:22px;border-radius:50%;
-  background:var(--surface);color:var(--ink);border:1.6px solid var(--ink);font-size:.58rem;cursor:pointer;
-  display:none;place-items:center;z-index:7;
-}
-.ov-obj.selected .ov-dup{display:grid}
-
-/* lift-element marquee */
-.extract-box{
-  position:absolute;z-index:8;pointer-events:none;border:1.7px dashed var(--ink);
-  background:rgba(10,132,255,.09);border-radius:3px;animation:antsPulse .8s ease-in-out infinite alternate;
-}
-@keyframes antsPulse{from{border-color:var(--ink)}to{border-color:var(--faint)}}
-
-/* organize — drag & drop */
-.org-thumb{user-select:none;-webkit-user-select:none}
-.org-thumb .th-grip{
-  position:absolute;top:5px;right:7px;color:var(--faint);font-size:.7rem;
-  padding:5px 6px;cursor:grab;touch-action:none;border-radius:6px;
-}
-.org-thumb .th-grip:hover{color:var(--ink);background:var(--hover)}
-.org-thumb.drag-src{opacity:.35;transform:scale(.96)}
-.org-thumb.drop-before::before,.org-thumb.drop-after::after{
-  content:'';position:absolute;top:8px;bottom:8px;width:3px;border-radius:3px;background:var(--ink);
-  animation:fadeIn .15s var(--ease);
-}
-.org-thumb.drop-before::before{left:-9px}
-.org-thumb.drop-after::after{right:-9px}
-.drag-ghost{
-  position:fixed;z-index:1000;pointer-events:none;width:120px;padding:7px;border-radius:var(--radius-sm);
-  box-shadow:var(--shadow-lg);background:var(--surface);border:1.6px solid var(--ink);
-  transform:translate(-50%,-58%) rotate(3deg) scale(1.05);opacity:.94;
-}
-.drag-ghost img{width:100%;display:block;border-radius:4px;background:#fff}
-
-/* modal sheets (file picker, signature, leave prompts) */
-.sheet-backdrop{
-  position:fixed;inset:0;background:rgba(15,15,17,.38);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);
-  z-index:500;display:grid;place-items:center;padding:16px;animation:fadeIn .2s var(--ease);
-}
-@keyframes fadeIn{from{opacity:0}}
-.sheet{
-  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);
-  box-shadow:var(--shadow-lg);width:min(460px,94vw);max-height:82vh;overflow:auto;padding:22px;
-  animation:sheetIn .32s var(--ease);
-}
-@keyframes sheetIn{from{opacity:0;transform:translateY(20px) scale(.97)}}
-.sheet h3{font-size:1.02rem;margin-bottom:4px;display:flex;align-items:center;gap:9px}
-.sheet .sheet-sub{font-size:.8rem;color:var(--muted);margin-bottom:15px;line-height:1.45}
-.sheet .sheet-opt{
-  display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:var(--bg);
-  border:1.5px solid var(--line);border-radius:var(--radius-md);padding:13px 15px;font-size:.86rem;
-  font-weight:600;color:var(--ink);cursor:pointer;margin-bottom:9px;font-family:inherit;
-  transition:border-color .16s,transform .12s;
-}
-.sheet .sheet-opt:hover{border-color:var(--ink)}
-.sheet .sheet-opt:active{transform:scale(.98)}
-.sheet .sheet-opt.danger{color:var(--danger)}
-.sheet .sheet-opt i{width:19px;text-align:center;color:var(--muted);flex-shrink:0}
-.sheet .sheet-opt.danger i{color:var(--danger)}
-.sheet .sheet-opt small{display:block;font-weight:500;color:var(--faint);font-size:.72rem;margin-top:2px}
-.sheet .sheet-cancel{
-  width:100%;background:none;border:none;color:var(--muted);font-weight:600;font-size:.82rem;
-  padding:10px;cursor:pointer;font-family:inherit;border-radius:8px;
-}
-.sheet .sheet-cancel:hover{background:var(--hover);color:var(--ink)}
-
-/* signature pad */
-#sig-canvas{
-  width:100%;height:190px;background:var(--bg);border:1.5px dashed var(--line-strong);
-  border-radius:var(--radius-md);touch-action:none;cursor:crosshair;display:block;
-}
-
-/* resume-session banner */
-.resume-pill{
-  display:flex;align-items:center;gap:13px;max-width:620px;margin:0 auto 18px;text-align:left;
-  background:var(--surface);border:1.5px solid var(--line);border-radius:var(--radius-md);
-  padding:13px 16px;box-shadow:var(--shadow-sm);animation:sheetIn .4s var(--ease);
-}
-.resume-pill>i{color:var(--muted);font-size:1.05rem}
-.resume-pill .rp-txt{flex:1;font-size:.84rem;font-weight:650;min-width:0}
-.resume-pill .rp-txt span{display:block;font-size:.72rem;color:var(--muted);font-weight:500;margin-top:1px}
-
-/* autosave indicator */
-.autosave-dot{display:inline-flex;align-items:center;gap:6px;font-size:.7rem;color:var(--faint);font-weight:600;margin-left:auto}
-.autosave-dot i{font-size:.44rem;color:#34c759;animation:fadeIn .4s}
-
 @media(max-width:640px){
-  header{padding:10px 14px}
-  .hero{padding:36px 0 26px}
-  .dropzone{padding:34px 18px}
-  main{padding:0 12px calc(60px + env(safe-area-inset-bottom))}
-  .editor-bar{top:56px;padding:8px 10px}
-  .bar-row{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none}
-  .bar-row::-webkit-scrollbar{display:none}
-  .tool-btn{width:40px;height:40px;flex-shrink:0}
-  .tool-btn[data-tip]:hover::after{display:none}
-  .bar-select,.bar-num,.bar-color,.bar-range,.chip-btn,.color-dot,.bar-div,.zoom-label{flex-shrink:0}
-  .color-dot{width:26px;height:26px}
-  .ov-del,.ov-dup{width:27px;height:27px;top:-14px;font-size:.7rem}
-  .ov-dup{right:20px}
-  .ov-resize{width:21px;height:21px;bottom:-10px;right:-10px}
-  .org-grid{grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px}
-  #toasts{bottom:calc(16px + env(safe-area-inset-bottom))}
-  .sheet{padding:18px;border-radius:var(--radius-lg) var(--radius-lg) 0 0;align-self:end;width:100vw;max-width:100vw}
-  .sheet-backdrop{padding:0;place-items:end center}
-  .resume-pill{margin-left:8px;margin-right:8px}
+  .hero{padding:44px 0 30px}
+  .dropzone{padding:36px 20px}
+  .editor-bar{top:58px}
+  main{padding:0 14px 60px}
 }
 </style>
 </head>
@@ -574,8 +455,6 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
       <div class="eyebrow"><i class="fas fa-lock"></i> 100% private — files never leave your device</div>
       <h2>Every PDF tool.<br><em>One quiet place.</em></h2>
       <p>Edit, organize, merge, split, watermark, convert. No uploads, no accounts, no limits.</p>
-
-      <div id="resume-slot"></div>
 
       <div class="dropzone" id="main-drop" onclick="triggerMainUpload()">
         <div class="dz-icon"><i class="fas fa-arrow-up-from-bracket"></i></div>
@@ -671,7 +550,6 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
     <div class="ws-top">
       <button class="back-btn" onclick="goHome()"><i class="fas fa-arrow-left"></i> Start over</button>
       <button class="chip-btn" onclick="triggerMainUpload()"><i class="fas fa-plus"></i> Add PDF</button>
-      <span class="autosave-dot" id="autosave-dot" style="display:none"><i class="fas fa-circle"></i> Saved on this device</span>
     </div>
     <div class="file-strip" id="file-strip"></div>
 
@@ -782,15 +660,11 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
         <button class="tool-btn" data-tool="image" data-tip="Insert image" onclick="setEdTool('image')"><i class="far fa-image"></i></button>
         <button class="tool-btn" data-tool="check" data-tip="Checkmark stamp" onclick="setEdTool('check')"><i class="fas fa-check"></i></button>
         <button class="tool-btn" data-tool="cross" data-tip="Cross stamp" onclick="setEdTool('cross')"><i class="fas fa-xmark"></i></button>
-        <div class="bar-div"></div>
-        <button class="tool-btn" data-tool="extract" data-tip="Lift element — drag around a signature, stamp or any region to grab it" onclick="setEdTool('extract')"><i class="fas fa-wand-magic-sparkles"></i></button>
-        <button class="tool-btn" data-tip="Signature — draw once, reuse anywhere" onclick="openSigPad()"><i class="fas fa-signature"></i></button>
         <div class="bar-spacer"></div>
         <button class="tool-btn" data-tip="Zoom out" onclick="edZoom(-1)"><i class="fas fa-magnifying-glass-minus"></i></button>
         <span class="zoom-label" id="ed-zoom-label">100%</span>
         <button class="tool-btn" data-tip="Zoom in" onclick="edZoom(1)"><i class="fas fa-magnifying-glass-plus"></i></button>
         <button class="tool-btn" data-tip="Undo (Ctrl+Z)" onclick="edUndo()"><i class="fas fa-rotate-left"></i></button>
-        <button class="chip-btn" id="ed-apply-btn" onclick="applyEditedPdf(this)" title="Bake your edits into the workspace copy (autosaved on this device) without downloading"><i class="fas fa-check"></i> Apply</button>
         <button class="chip-btn solid" id="ed-save-btn" onclick="saveEditedPdf()"><i class="fas fa-download"></i> Save PDF</button>
       </div>
       <div class="bar-row">
@@ -823,7 +697,7 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
         <input type="range" class="bar-range" id="ed-stroke" min="1" max="14" step="0.5" value="3.5" title="Stroke width" oninput="edSetStroke(this.value)">
       </div>
     </div>
-    <p class="note" style="text-align:left;margin:0 0 14px">Tip: pick <b>Edit existing text</b> <i class="fas fa-i-cursor"></i> and click any line to rewrite it — the original is covered automatically. Use <b>Lift element</b> <i class="fas fa-wand-magic-sparkles"></i> to grab a signature or any region and drag it anywhere (even across pages), and <b>Signature</b> <i class="fas fa-signature"></i> to draw &amp; reuse your own. <b>Apply</b> keeps changes in your workspace without downloading.</p>
+    <p class="note" style="text-align:left;margin:0 0 14px">Tip: pick <b>Edit existing text</b> <i class="fas fa-i-cursor"></i> and click any line on the page to rewrite it. Use <b>Whiteout</b> to cover content, and the format row for font, size, style, alignment and colour.</p>
     <div class="editor-pages" id="editor-pages"></div>
     <input type="file" id="ed-img-input" hidden accept="image/png,image/jpeg" onchange="edPlaceImage(this.files[0]); this.value=''">
   </section>
@@ -831,7 +705,7 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
   <!-- ================= ORGANIZE ================= -->
   <section id="view-organize" class="view">
     <div class="ws-top" style="padding-bottom:8px">
-      <button class="back-btn" onclick="confirmLeaveOrganize()"><i class="fas fa-arrow-left"></i> All tools</button>
+      <button class="back-btn" onclick="showView('view-workspace')"><i class="fas fa-arrow-left"></i> All tools</button>
       <span style="font-size:.82rem;color:var(--muted);font-weight:600" id="org-filename"></span>
     </div>
     <div class="editor-bar">
@@ -848,10 +722,9 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
       <button class="tool-btn" data-tip="Insert images after" onclick="document.getElementById('org-img-input').click()"><i class="far fa-images"></i></button>
       <div class="bar-spacer"></div>
       <span style="font-size:.75rem;color:var(--faint);font-weight:600;margin-right:8px" id="org-count"></span>
-      <button class="chip-btn" id="org-apply-btn" onclick="applyOrganizedPdf(this)" title="Keep this page order in the workspace copy without downloading"><i class="fas fa-check"></i> Apply</button>
       <button class="chip-btn solid" id="org-save-btn" onclick="saveOrganizedPdf()"><i class="fas fa-download"></i> Save PDF</button>
     </div>
-    <p class="note" style="text-align:left;margin:0 0 14px"><b>Drag pages to reorder</b> — grab the <i class="fas fa-grip-vertical"></i> handle (or press &amp; hold on touch). Click a page to select it for the toolbar. Inserts land right after the selected page.</p>
+    <p class="note" style="text-align:left;margin:0 0 14px">Click a page to select it, then use the toolbar. Inserts land right after the selected page (or at the end).</p>
     <div class="org-grid" id="org-grid"></div>
     <input type="file" id="org-pdf-input" hidden accept=".pdf" onchange="orgInsertPdf(this.files[0]); this.value=''">
     <input type="file" id="org-img-input" hidden multiple accept="image/png,image/jpeg" onchange="orgInsertImages(this.files); this.value=''">
@@ -977,133 +850,6 @@ async function bulkDownload(filesObj, zipName) {
 
 function baseName(name) { return name.replace(/\.[^.]+$/, ''); }
 
-/* ---------------- modal sheets (replaces prompt/confirm — mobile friendly) ---------------- */
-function sheetOpen(innerHtml) {
-  sheetClose();
-  const bd = document.createElement('div');
-  bd.className = 'sheet-backdrop';
-  bd.id = 'sheet-bd';
-  bd.innerHTML = `<div class="sheet">${innerHtml}</div>`;
-  document.body.appendChild(bd);
-  return bd.querySelector('.sheet');
-}
-function sheetClose() { const b = $('sheet-bd'); if (b) b.remove(); }
-
-/* options: [{label, sub, icon, value, danger}] → resolves the chosen value, or null on cancel */
-function pickSheet(title, sub, options) {
-  return new Promise((resolve) => {
-    const s = sheetOpen(
-      `<h3>${escapeHtml(title)}</h3>` +
-      (sub ? `<p class="sheet-sub">${escapeHtml(sub)}</p>` : '') +
-      `<div id="sheet-opts"></div><button class="sheet-cancel">Cancel</button>`);
-    const done = (v) => { sheetClose(); resolve(v); };
-    const wrap = s.querySelector('#sheet-opts');
-    options.forEach(o => {
-      const b = document.createElement('button');
-      b.className = 'sheet-opt' + (o.danger ? ' danger' : '');
-      b.innerHTML = `<i class="${o.icon || 'far fa-file-pdf'}"></i><span>${escapeHtml(o.label)}` +
-        (o.sub ? `<small>${escapeHtml(o.sub)}</small>` : '') + `</span>`;
-      b.onclick = () => done(o.value);
-      wrap.appendChild(b);
-    });
-    s.querySelector('.sheet-cancel').onclick = () => done(null);
-    $('sheet-bd').addEventListener('pointerdown', (e) => { if (e.target.id === 'sheet-bd') done(null); });
-  });
-}
-
-async function pickFile(title) {
-  if (pdfFiles.length === 1) return 0;
-  return pickSheet(title, null, pdfFiles.map((f, i) => ({
-    label: f.name, sub: fmtSize(f.size), icon: 'far fa-file-pdf', value: i,
-  })));
-}
-
-/* ---------------- session persistence (IndexedDB) — pick up where you left off ---------------- */
-function idbOpen() {
-  return new Promise((res, rej) => {
-    const r = indexedDB.open('zenpdf-session', 1);
-    r.onupgradeneeded = () => r.result.createObjectStore('kv');
-    r.onsuccess = () => res(r.result);
-    r.onerror = () => rej(r.error);
-  });
-}
-function idbTx(mode, fn) {
-  return idbOpen().then(db => new Promise((res, rej) => {
-    const tx = db.transaction('kv', mode);
-    const out = fn(tx.objectStore('kv'));
-    tx.oncomplete = () => { db.close(); res(out && out.result); };
-    tx.onerror = () => { db.close(); rej(tx.error); };
-  }));
-}
-const idbSet = (k, v) => idbTx('readwrite', st => st.put(v, k));
-const idbGet = (k) => idbTx('readonly', st => st.get(k));
-const idbDel = (k) => idbTx('readwrite', st => st.delete(k));
-
-let persistTimer = null;
-function persistSession() {
-  clearTimeout(persistTimer);
-  persistTimer = setTimeout(async () => {
-    try {
-      if (!pdfFiles.length) {
-        await idbDel('files'); await idbDel('when');
-        setSaveDot(false);
-        return;
-      }
-      await idbSet('files', pdfFiles.map(f => ({ name: f.name, bytes: f.bytes })));
-      await idbSet('when', Date.now());
-      setSaveDot(true);
-    } catch (e) { /* storage unavailable (private mode etc.) — silently skip */ }
-  }, 600);
-}
-function setSaveDot(on) { const el = $('autosave-dot'); if (el) el.style.display = on ? '' : 'none'; }
-
-function timeAgo(ts) {
-  const m = Math.round((Date.now() - ts) / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return m + ' min ago';
-  const h = Math.round(m / 60);
-  if (h < 24) return h + ' hour' + (h > 1 ? 's' : '') + ' ago';
-  const d = Math.round(h / 24);
-  return d + ' day' + (d > 1 ? 's' : '') + ' ago';
-}
-
-async function initResume() {
-  try {
-    const files = await idbGet('files');
-    if (!files || !files.length || pdfFiles.length) return;
-    const when = await idbGet('when');
-    const slot = $('resume-slot');
-    if (!slot) return;
-    const total = files.reduce((s, f) => s + (f.bytes.byteLength || f.bytes.length || 0), 0);
-    slot.innerHTML = `
-      <div class="resume-pill">
-        <i class="fas fa-clock-rotate-left"></i>
-        <div class="rp-txt">Continue where you left off
-          <span>${files.length} file${files.length > 1 ? 's' : ''} · ${fmtSize(total)} · saved ${when ? timeAgo(when) : 'earlier'}</span>
-        </div>
-        <button class="chip-btn solid" id="resume-yes"><i class="fas fa-arrow-rotate-right"></i> Resume</button>
-        <button class="icon-btn" id="resume-no" title="Discard saved session"><i class="fas fa-xmark"></i></button>
-      </div>`;
-    $('resume-yes').onclick = () => {
-      pdfFiles = files.map(f => {
-        const bytes = f.bytes instanceof Uint8Array ? f.bytes : new Uint8Array(f.bytes);
-        return { name: f.name, bytes, size: bytes.byteLength };
-      });
-      slot.innerHTML = '';
-      renderFileStrip();
-      setSaveDot(true);
-      showView('view-workspace');
-      toast('Session restored — everything was saved on this device');
-    };
-    $('resume-no').onclick = async () => {
-      slot.innerHTML = '';
-      try { await idbDel('files'); await idbDel('when'); } catch (e) {}
-      toast('Saved session discarded', 'ok', 2000);
-    };
-  } catch (e) { /* no IndexedDB — feature just stays off */ }
-}
-initResume();
-
 /* pdf.js consumes (detaches) the buffer it is given — always hand it a copy */
 function pdfjsLoad(bytes) {
   return pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
@@ -1138,9 +884,7 @@ async function handlePdfUpload(fileList) {
     }
   }
   if (!pdfFiles.length) return;
-  const slot = $('resume-slot'); if (slot) slot.innerHTML = '';
   renderFileStrip();
-  persistSession();
   showView('view-workspace');
   toast(`${files.length} PDF${files.length > 1 ? 's' : ''} ready`);
 }
@@ -1172,7 +916,6 @@ function moveFile(i, dir) {
   if (j < 0 || j >= pdfFiles.length) return;
   [pdfFiles[i], pdfFiles[j]] = [pdfFiles[j], pdfFiles[i]];
   renderFileStrip();
-  persistSession();
 }
 
 function downloadFile(i) {
@@ -1181,8 +924,7 @@ function downloadFile(i) {
 
 function removePdf(i) {
   pdfFiles.splice(i, 1);
-  persistSession();
-  if (!pdfFiles.length) { setSaveDot(false); showView('view-home'); return; }
+  if (!pdfFiles.length) { showView('view-home'); return; }
   renderFileStrip();
 }
 
@@ -1192,7 +934,6 @@ function updatePdf(i, bytes, newName) {
   pdfFiles[i].size = bytes.length;
   if (newName) pdfFiles[i].name = newName;
   renderFileStrip();
-  persistSession();
 }
 
 /* ---------------- drag & drop ---------------- */
@@ -1787,7 +1528,6 @@ const ed = {
   pendingImagePage: null,
   pendingImagePos: null,
   strokeLog: [],
-  clipboard: null,
 };
 
 const FONT_CSS = {
@@ -1803,13 +1543,18 @@ const FONT_VARIANTS = {
 
 async function openEditor() {
   if (!pdfFiles.length) { toast('Open a PDF first', 'err'); return; }
-  const pickE = await pickFile('Which PDF do you want to edit?');
-  if (pickE === null) return;
-  ed.fileIndex = pickE;
+  ed.fileIndex = 0;
+  if (pdfFiles.length > 1) {
+    const pick = prompt('Which file do you want to edit?\n' +
+      pdfFiles.map((f, i) => `${i + 1}. ${f.name}`).join('\n') + '\n\nEnter a number:', '1');
+    const n = parseInt(pick);
+    if (!n || n < 1 || n > pdfFiles.length) return;
+    ed.fileIndex = n - 1;
+  }
   showView('view-editor');
   $('editor-filename').textContent = pdfFiles[ed.fileIndex].name;
   const wrap = $('editor-pages');
-  wrap.innerHTML = '<div class="skel-page"></div><div class="skel-page"></div>';
+  wrap.innerHTML = '<p class="note"><i class="fas fa-circle-notch spin"></i> Rendering pages…</p>';
   ed.pages = []; ed.hasChanges = false; ed.selected = null; ed.strokeLog = []; ed.pdfDoc = null;
   setEdTool('select');
 
@@ -1851,7 +1596,7 @@ async function openEditor() {
       const pageState = {
         holder, render, anno, ctx: anno.getContext('2d'), viewport,
         dirty: false, undo: [], texts: new Set(), images: new Set(),
-        hits: [], textLayer: false, redacts: [],
+        hits: [], textLayer: false,
         w: viewport.width, h: viewport.height, index: i - 1,
       };
       ed.pages.push(pageState);
@@ -2009,7 +1754,7 @@ async function ensureTextLayer(p) {
       p.hits.push(hit);
     }
     if (!p.hits.length && p.index === 0) {
-      toast('No selectable text here — this looks like a scan. Use Whiteout + Add text to replace wording, or Lift element to grab parts of it.', 'err', 5200);
+      toast('No selectable text found — this page may be a scan', 'err', 3500);
     }
   } catch (e) { console.warn('text layer failed', e); }
 }
@@ -2030,28 +1775,8 @@ function editExistingText(p, hit) {
   t.style.fontWeight = '400'; t.style.fontStyle = 'normal';
   t.style.textDecoration = 'none'; t.style.textAlign = 'left';
 
-  // cover the original wording ON SCREEN right away (fixes the
-  // "duplicate text" effect — the page raster kept showing through)
-  const rr = {
-    x: Math.max(0, Math.round(x - 2)), y: Math.max(0, Math.round(y - 2)),
-    w: Math.min(Math.round(w + 6), p.anno.width), h: Math.min(Math.round(h + 4), p.anno.height),
-  };
-  let restore = null;
-  try { restore = p.ctx.getImageData(rr.x, rr.y, rr.w, rr.h); } catch (e) {}
-  pushUndo(p);
-  p.ctx.save();
-  p.ctx.globalAlpha = 1; p.ctx.globalCompositeOperation = 'source-over';
-  p.ctx.fillStyle = bg;
-  p.ctx.fillRect(rr.x, rr.y, rr.w, rr.h);
-  p.ctx.restore();
-  p.dirty = true;
-  obj._restore = { rr, data: restore, page: p, annoW: p.anno.width };
-
-  // and remember what to paint over in the final PDF (vector-crisp cover)
-  const redact = { x: x - 1, y: y - 1, w: w + 4, h: h + 2, c: bg };
-  p.redacts.push(redact);
-  obj._redactRef = redact;
-  obj._redactPage = p;
+  // remember what to paint over in the final PDF
+  obj.dataset.redact = JSON.stringify({ x: x - 1, y: y - 1, w: w + 4, h: h + 2, c: bg });
   obj._hit = hit;
   hit.style.display = 'none';
   ed.hasChanges = true;
@@ -2067,16 +1792,7 @@ function editExistingText(p, hit) {
 
 function removeEdObj(obj, p) {
   if (obj._hit) obj._hit.style.display = '';
-  if (obj._restore && obj._restore.data && obj._restore.page.anno.width === obj._restore.annoW) {
-    try { obj._restore.page.ctx.putImageData(obj._restore.data, obj._restore.rr.x, obj._restore.rr.y); } catch (e) {}
-  }
-  if (obj._redactRef && obj._redactPage) {
-    const i = obj._redactPage.redacts.indexOf(obj._redactRef);
-    if (i >= 0) obj._redactPage.redacts.splice(i, 1);
-  }
-  const owner = ed.pages.find(pg => pg.holder.contains(obj)) || p;
-  if (owner) { owner.texts.delete(obj); owner.images.delete(obj); }
-  if (p && p !== owner) { p.texts.delete(obj); p.images.delete(obj); }
+  if (p) { p.texts.delete(obj); p.images.delete(obj); }
   obj.remove();
   if (ed.selected === obj) ed.selected = null;
   ed.hasChanges = true;
@@ -2099,22 +1815,9 @@ function bindEditorEvents(p) {
             (e.clientY - r.top) * (canvas.height / r.height)];
   };
 
-  let extracting = false, exX = 0, exY = 0, exBox = null;
-
   canvas.addEventListener('pointerdown', (e) => {
     const [x, y] = pos(e);
     if (ed.tool === 'select' || ed.tool === 'edittext') { edDeselect(); return; }
-    if (ed.tool === 'extract') {
-      edDeselect();
-      extracting = true; exX = x; exY = y;
-      canvas.setPointerCapture(e.pointerId);
-      exBox = document.createElement('div');
-      exBox.className = 'extract-box';
-      exBox.style.left = x + 'px'; exBox.style.top = y + 'px';
-      exBox.style.width = '0px'; exBox.style.height = '0px';
-      p.holder.appendChild(exBox);
-      return;
-    }
     if (ed.tool === 'text') { edCreateText(p, x, y); return; }
     if (ed.tool === 'image') {
       ed.pendingImagePage = p; ed.pendingImagePos = [x, y];
@@ -2135,14 +1838,6 @@ function bindEditorEvents(p) {
   });
 
   canvas.addEventListener('pointermove', (e) => {
-    if (extracting) {
-      const [x, y] = pos(e);
-      exBox.style.left = Math.min(exX, x) + 'px';
-      exBox.style.top = Math.min(exY, y) + 'px';
-      exBox.style.width = Math.abs(x - exX) + 'px';
-      exBox.style.height = Math.abs(y - exY) + 'px';
-      return;
-    }
     if (!drawing) return;
     const [x, y] = pos(e);
     const ctx = p.ctx;
@@ -2179,149 +1874,13 @@ function bindEditorEvents(p) {
     }
   });
 
-  const finish = (e) => {
-    if (extracting) {
-      extracting = false;
-      const r = {
-        x: parseFloat(exBox.style.left), y: parseFloat(exBox.style.top),
-        w: parseFloat(exBox.style.width), h: parseFloat(exBox.style.height),
-      };
-      exBox.remove(); exBox = null;
-      if (r.w > 14 && r.h > 10) liftRegion(p, r);
-      else toast('Drag a box around the element you want to lift', 'err', 2400);
-      return;
-    }
+  const finish = () => {
     if (!drawing) return;
     drawing = false; snapshot = null;
     p.dirty = true; ed.hasChanges = true;
   };
   canvas.addEventListener('pointerup', finish);
   canvas.addEventListener('pointercancel', finish);
-}
-
-/* --- "Lift element": grab any region (signature, stamp, logo…) as a
-       movable, resizable object — Adobe-style. The background is removed
-       automatically when the region sits on a flat colour. --- */
-function liftRegion(p, r) {
-  const W = Math.max(2, Math.round(r.w)), H = Math.max(2, Math.round(r.h));
-  const tmp = document.createElement('canvas');
-  tmp.width = W; tmp.height = H;
-  const c = tmp.getContext('2d');
-  c.drawImage(p.render, r.x, r.y, W, H, 0, 0, W, H);
-  c.drawImage(p.anno, r.x, r.y, W, H, 0, 0, W, H);
-
-  try {
-    const id = c.getImageData(0, 0, W, H);
-    const d = id.data;
-    // estimate the background from the border pixels
-    const samples = [];
-    const grab = (px, py) => { const i = (py * W + px) * 4; samples.push([d[i], d[i + 1], d[i + 2]]); };
-    const stepX = Math.max(1, W >> 4), stepY = Math.max(1, H >> 4);
-    for (let i = 0; i < W; i += stepX) { grab(i, 0); grab(i, H - 1); }
-    for (let j = 0; j < H; j += stepY) { grab(0, j); grab(W - 1, j); }
-    const bg = [0, 1, 2].map(k => samples.reduce((s, q) => s + q[k], 0) / samples.length);
-    const spread = samples.reduce((s, q) =>
-      s + Math.abs(q[0] - bg[0]) + Math.abs(q[1] - bg[1]) + Math.abs(q[2] - bg[2]), 0) / samples.length;
-
-    if (spread < 30) {                    // flat background → knock it out
-      const thr = 48;
-      for (let i = 0; i < d.length; i += 4) {
-        const dist = Math.abs(d[i] - bg[0]) + Math.abs(d[i + 1] - bg[1]) + Math.abs(d[i + 2] - bg[2]);
-        if (dist < thr) d[i + 3] = 0;
-        else if (dist < thr * 2) d[i + 3] = Math.min(d[i + 3], Math.round(255 * (dist - thr) / thr));
-      }
-      c.putImageData(id, 0, 0);
-    }
-  } catch (e) { /* keep opaque copy if pixel access fails */ }
-
-  const obj = edCreateImageObj(p, tmp.toDataURL('image/png'), r.x, r.y, W, 'image/png');
-  setEdTool('select');
-  edSelect(obj);
-  ed.hasChanges = true;
-  toast('Element lifted — drag it anywhere (even another page), resize or duplicate it. Use Whiteout to erase the original.', 'ok', 4600);
-}
-
-/* --- signature pad: draw once, reuse forever --- */
-function openSigPad() {
-  if (!ed.pages.length) { toast('Open the editor with a PDF first', 'err'); return; }
-  let saved = null;
-  try { saved = localStorage.getItem('zenpdf-sig'); } catch (e) {}
-  const s = sheetOpen(`
-    <h3><i class="fas fa-signature"></i> Your signature</h3>
-    <p class="sheet-sub">Draw below with your finger or mouse. It's placed as a transparent image you can move, resize and duplicate — and it stays saved on this device for next time.</p>
-    <canvas id="sig-canvas"></canvas>
-    <div style="display:flex;gap:8px;margin-top:12px;align-items:center;flex-wrap:wrap">
-      <button class="chip-btn" id="sig-clear"><i class="fas fa-eraser"></i> Clear</button>
-      ${saved ? '<button class="chip-btn" id="sig-saved"><i class="fas fa-clock-rotate-left"></i> Use saved</button>' : ''}
-      <span style="flex:1"></span>
-      <button class="chip-btn solid" id="sig-done"><i class="fas fa-check"></i> Place</button>
-    </div>
-    <button class="sheet-cancel" id="sig-cancel" style="margin-top:8px">Cancel</button>`);
-  const cv = s.querySelector('#sig-canvas');
-  const rect = cv.getBoundingClientRect();
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
-  cv.width = Math.round(rect.width * dpr); cv.height = Math.round(rect.height * dpr);
-  const ctx = cv.getContext('2d');
-  ctx.scale(dpr, dpr);
-  ctx.lineWidth = 2.6; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  ctx.strokeStyle = '#1a237e';
-  let down = false, drawn = false;
-  const pt = (e) => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
-  cv.addEventListener('pointerdown', (e) => {
-    down = true; drawn = true; cv.setPointerCapture(e.pointerId);
-    const [x, y] = pt(e); ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 0.1, y); ctx.stroke();
-  });
-  cv.addEventListener('pointermove', (e) => {
-    if (!down) return;
-    const [x, y] = pt(e); ctx.lineTo(x, y); ctx.stroke();
-  });
-  const stop = () => { down = false; };
-  cv.addEventListener('pointerup', stop); cv.addEventListener('pointercancel', stop);
-  s.querySelector('#sig-clear').onclick = () => { ctx.clearRect(0, 0, cv.width, cv.height); drawn = false; };
-  s.querySelector('#sig-cancel').onclick = () => sheetClose();
-  if (saved) s.querySelector('#sig-saved').onclick = () => placeSignature(saved);
-  s.querySelector('#sig-done').onclick = () => {
-    if (!drawn) { toast('Draw your signature first', 'err', 2200); return; }
-    const url = trimCanvas(cv);
-    if (!url) { toast('Draw your signature first', 'err', 2200); return; }
-    try { localStorage.setItem('zenpdf-sig', url); } catch (e) {}
-    placeSignature(url);
-  };
-}
-
-function trimCanvas(cv) {
-  const ctx = cv.getContext('2d');
-  const { width: W, height: H } = cv;
-  const d = ctx.getImageData(0, 0, W, H).data;
-  let minX = W, minY = H, maxX = -1, maxY = -1;
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    if (d[(y * W + x) * 4 + 3] > 8) {
-      if (x < minX) minX = x; if (x > maxX) maxX = x;
-      if (y < minY) minY = y; if (y > maxY) maxY = y;
-    }
-  }
-  if (maxX < 0) return null;
-  const pad = 6;
-  minX = Math.max(0, minX - pad); minY = Math.max(0, minY - pad);
-  maxX = Math.min(W - 1, maxX + pad); maxY = Math.min(H - 1, maxY + pad);
-  const out = document.createElement('canvas');
-  out.width = maxX - minX + 1; out.height = maxY - minY + 1;
-  out.getContext('2d').drawImage(cv, minX, minY, out.width, out.height, 0, 0, out.width, out.height);
-  return out.toDataURL('image/png');
-}
-
-function placeSignature(url) {
-  sheetClose();
-  const pg = edVisiblePage() || ed.pages[0];
-  if (!pg) return;
-  const img = new Image();
-  img.onload = () => {
-    const w = Math.min(230, pg.w * 0.42);
-    const obj = edCreateImageObj(pg, url, (pg.w - w) / 2, pg.h * 0.55, w, 'image/png');
-    edSelect(obj); setEdTool('select');
-    toast('Signature placed — drag it into position', 'ok', 2600);
-  };
-  img.src = url;
 }
 
 function edStamp(p, x, y, kind) {
@@ -2388,9 +1947,11 @@ async function edZoom(dir) {
       const t = obj.querySelector('.ov-text');
       t.style.fontSize = parseFloat(t.style.fontSize) * ratio + 'px';
       if (obj.style.width) obj.style.width = parseFloat(obj.style.width) * ratio + 'px';
-      if (obj._restore) obj._restore = null; // raster snapshot no longer valid after rescale
+      if (obj.dataset.redact) {
+        const r = JSON.parse(obj.dataset.redact);
+        obj.dataset.redact = JSON.stringify({ x: r.x * ratio, y: r.y * ratio, w: r.w * ratio, h: r.h * ratio, c: r.c });
+      }
     }
-    for (const r of p.redacts) { r.x *= ratio; r.y *= ratio; r.w *= ratio; r.h *= ratio; }
     for (const obj of p.images) {
       obj.style.left = parseFloat(obj.style.left) * ratio + 'px';
       obj.style.top = parseFloat(obj.style.top) * ratio + 'px';
@@ -2426,20 +1987,13 @@ function edCreateText(p, x, y, opts = {}) {
 
   const del = document.createElement('button');
   del.className = 'ov-del';
-  del.title = 'Delete';
   del.innerHTML = '<i class="fas fa-xmark"></i>';
   del.onclick = (e) => { e.stopPropagation(); removeEdObj(obj, p); };
-
-  const dup = document.createElement('button');
-  dup.className = 'ov-dup';
-  dup.title = 'Duplicate';
-  dup.innerHTML = '<i class="far fa-copy"></i>';
-  dup.onclick = (e) => { e.stopPropagation(); duplicateEdObj(obj); };
 
   const rz = document.createElement('div');
   rz.className = 'ov-resize';
 
-  obj.append(t, del, dup, rz);
+  obj.append(t, del, rz);
   p.holder.appendChild(obj);
   p.texts.add(obj);
   ed.hasChanges = true;
@@ -2479,44 +2033,6 @@ function makeTextResizable(obj, handle) {
 }
 
 /* --- image objects --- */
-function edCreateImageObj(p, dataUrl, x, y, w, mime = 'image/png') {
-  const obj = document.createElement('div');
-  obj.className = 'ov-obj ov-img';
-  obj.dataset.kind = 'image';
-  obj.dataset.mime = mime || 'image/png';
-  obj.style.left = Math.max(0, x) + 'px';
-  obj.style.top = Math.max(0, y) + 'px';
-  obj.style.width = w + 'px';
-
-  const img = document.createElement('img');
-  img.src = dataUrl; img.style.width = '100%';
-  img.draggable = false;
-
-  const del = document.createElement('button');
-  del.className = 'ov-del';
-  del.title = 'Delete';
-  del.innerHTML = '<i class="fas fa-xmark"></i>';
-  del.onclick = (e) => { e.stopPropagation(); removeEdObj(obj, p); };
-
-  const dup = document.createElement('button');
-  dup.className = 'ov-dup';
-  dup.title = 'Duplicate';
-  dup.innerHTML = '<i class="far fa-copy"></i>';
-  dup.onclick = (e) => { e.stopPropagation(); duplicateEdObj(obj); };
-
-  const rz = document.createElement('div');
-  rz.className = 'ov-resize';
-
-  obj.append(img, del, dup, rz);
-  p.holder.appendChild(obj);
-  p.images.add(obj);
-  ed.hasChanges = true;
-  makeDraggable(obj, p);
-  img.onload = () => makeResizable(obj, rz, img.naturalHeight / img.naturalWidth);
-  if (img.complete && img.naturalWidth) makeResizable(obj, rz, img.naturalHeight / img.naturalWidth);
-  return obj;
-}
-
 async function edPlaceImage(file) {
   if (!file || !ed.pendingImagePage) return;
   const p = ed.pendingImagePage, [x, y] = ed.pendingImagePos;
@@ -2529,7 +2045,33 @@ async function edPlaceImage(file) {
   imgEl.onload = () => {
     const w = Math.min(220, p.w * 0.5);
     const h = w * (imgEl.naturalHeight / imgEl.naturalWidth);
-    const obj = edCreateImageObj(p, dataUrl, x - w / 2, y - h / 2, w, file.type);
+
+    const obj = document.createElement('div');
+    obj.className = 'ov-obj ov-img';
+    obj.dataset.kind = 'image';
+    obj.dataset.mime = file.type;
+    obj.style.left = Math.max(0, x - w / 2) + 'px';
+    obj.style.top = Math.max(0, y - h / 2) + 'px';
+    obj.style.width = w + 'px';
+
+    const img = document.createElement('img');
+    img.src = dataUrl; img.style.width = '100%';
+    img.draggable = false;
+
+    const del = document.createElement('button');
+    del.className = 'ov-del';
+    del.innerHTML = '<i class="fas fa-xmark"></i>';
+    del.onclick = (e) => { e.stopPropagation(); removeEdObj(obj, p); };
+
+    const rz = document.createElement('div');
+    rz.className = 'ov-resize';
+
+    obj.append(img, del, rz);
+    p.holder.appendChild(obj);
+    p.images.add(obj);
+    ed.hasChanges = true;
+    makeDraggable(obj, p);
+    makeResizable(obj, rz, imgEl.naturalHeight / imgEl.naturalWidth);
     edSelect(obj);
     setEdTool('select');
   };
@@ -2537,103 +2079,24 @@ async function edPlaceImage(file) {
   ed.pendingImagePage = null;
 }
 
-/* --- duplicate & clipboard for overlay objects --- */
-function duplicateEdObj(obj, target) {
-  const pg = target || edPageOf(obj);
-  if (!pg) return null;
-  const off = target ? 0 : 18;
-  const l = parseFloat(obj.style.left) + off, t = parseFloat(obj.style.top) + off;
-  let clone = null;
-  if (obj.dataset.kind === 'text') {
-    const src = obj.querySelector('.ov-text');
-    clone = edCreateText(pg, 0, 0, { existing: true });
-    clone.style.left = l + 'px'; clone.style.top = t + 'px';
-    const ct = clone.querySelector('.ov-text');
-    ct.textContent = src.textContent;
-    ['fontSize', 'color', 'fontWeight', 'fontStyle', 'textDecoration', 'textAlign', 'fontFamily']
-      .forEach(k => { if (src.style[k]) ct.style[k] = src.style[k]; });
-    clone.dataset.font = obj.dataset.font || 'Helvetica';
-    if (obj.dataset.fixedw) { clone.dataset.fixedw = '1'; clone.style.width = obj.style.width; }
-  } else {
-    const img = obj.querySelector('img');
-    const w = parseFloat(obj.style.width) || obj.getBoundingClientRect().width;
-    clone = edCreateImageObj(pg, img.src, l, t, w, obj.dataset.mime);
-  }
-  ed.hasChanges = true;
-  edSelect(clone);
-  return clone;
-}
-
-function edVisiblePage() {
-  const cy = window.innerHeight / 2;
-  let best = null, bd = Infinity;
-  for (const p of ed.pages) {
-    const r = p.holder.getBoundingClientRect();
-    const d = Math.abs((r.top + r.bottom) / 2 - cy);
-    if (d < bd) { bd = d; best = p; }
-  }
-  return best;
-}
-
-function edCopySelected() {
-  if (!ed.selected) return false;
-  ed.clipboard = ed.selected;
-  toast('Copied — press Ctrl+V on any page to paste', 'ok', 2200);
-  return true;
-}
-function edPasteClipboard() {
-  if (!ed.clipboard || !document.contains(ed.clipboard)) { ed.clipboard = null; return false; }
-  const pg = edVisiblePage();
-  if (!pg) return false;
-  const clone = duplicateEdObj(ed.clipboard, pg);
-  if (clone) {
-    clone.style.left = Math.max(10, (pg.w - clone.getBoundingClientRect().width) / 2) + 'px';
-    clone.style.top = (pg.h * 0.4) + 'px';
-    toast('Pasted — drag it into place', 'ok', 1800);
-  }
-  return true;
-}
-
-function edPageAt(clientX, clientY) {
-  for (const pg of ed.pages) {
-    const r = pg.holder.getBoundingClientRect();
-    if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) return pg;
-  }
-  return null;
-}
-function edPageOf(obj) { return ed.pages.find(pg => pg.holder === obj.parentElement); }
-
 function makeDraggable(obj, p, editableChild) {
-  let grabX = 0, grabY = 0, dragging = false, moved = false;
+  let startX, startY, origL, origT, dragging = false, moved = false;
   obj.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.ov-del') || e.target.closest('.ov-resize') || e.target.closest('.ov-dup')) return;
+    if (e.target.closest('.ov-del') || e.target.closest('.ov-resize')) return;
     if (obj.classList.contains('editing')) return;
     e.stopPropagation();
     edSelect(obj);
     dragging = true; moved = false;
-    const r = obj.getBoundingClientRect();
-    grabX = e.clientX - r.left; grabY = e.clientY - r.top;
+    startX = e.clientX; startY = e.clientY;
+    origL = parseFloat(obj.style.left); origT = parseFloat(obj.style.top);
     obj.setPointerCapture(e.pointerId);
   });
   obj.addEventListener('pointermove', (e) => {
     if (!dragging) return;
-    moved = true;
-    let pg = edPageOf(obj) || p;
-    const over = edPageAt(e.clientX, e.clientY);
-    if (over && over !== pg) {          // hop to another page mid-drag
-      const isText = obj.dataset.kind === 'text';
-      (isText ? pg.texts : pg.images).delete(obj);
-      (isText ? over.texts : over.images).add(obj);
-      over.holder.appendChild(obj);
-      pg = over;
-      ed.hasChanges = true;
-    }
-    const hr = pg.holder.getBoundingClientRect();
-    const k = hr.width / pg.w || 1;
-    const L = (e.clientX - hr.left - grabX) / k;
-    const T = (e.clientY - hr.top - grabY) / k;
-    obj.style.left = Math.min(Math.max(L, -10), pg.w - 20) + 'px';
-    obj.style.top = Math.min(Math.max(T, -6), pg.h - 20) + 'px';
+    const dx = e.clientX - startX, dy = e.clientY - startY;
+    if (Math.abs(dx) + Math.abs(dy) > 2) moved = true;
+    obj.style.left = Math.min(Math.max(origL + dx, -10), p.w - 20) + 'px';
+    obj.style.top = Math.min(Math.max(origT + dy, -6), p.h - 20) + 'px';
   });
   obj.addEventListener('pointerup', () => { if (dragging && moved) ed.hasChanges = true; dragging = false; });
   if (editableChild) {
@@ -2670,15 +2133,6 @@ document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) {
     e.preventDefault(); edUndo(); return;
   }
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && !typing && ed.selected) {
-    e.preventDefault(); edCopySelected(); return;
-  }
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v' && !typing && ed.clipboard) {
-    e.preventDefault(); edPasteClipboard(); return;
-  }
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd' && !typing && ed.selected) {
-    e.preventDefault(); duplicateEdObj(ed.selected); return;
-  }
   if (e.key === 'Escape' && !typing) { setEdTool('select'); return; }
   if ((e.key === 'Delete' || e.key === 'Backspace') && ed.selected &&
       !ed.selected.classList.contains('editing') && !typing) {
@@ -2689,19 +2143,10 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-async function confirmLeaveEditor() {
-  if (ed.hasChanges) {
-    const c = await pickSheet('You have unapplied edits',
-      'Keep them in your workspace copy (autosaved on this device), or discard them?', [
-        { label: 'Apply edits & leave', sub: 'You can keep working on the same file later', icon: 'fas fa-check', value: 'apply' },
-        { label: 'Discard edits', icon: 'far fa-trash-can', value: 'discard', danger: true },
-      ]);
-    if (c === null) return;
-    if (c === 'apply') { const ok = await applyEditedPdf(); if (!ok) return; }
-  }
+function confirmLeaveEditor() {
+  if (ed.hasChanges && !confirm('Leave the editor? Unsaved changes will be lost.')) return;
   $('editor-pages').innerHTML = '';
-  ed.pages = []; ed.pdfDoc = null; ed.clipboard = null;
-  ed.hasChanges = false;
+  ed.pages = []; ed.pdfDoc = null;
   showView('view-workspace');
 }
 
@@ -2716,7 +2161,10 @@ function winAnsiSafe(s) {
     .replace(/[^\x20-\x7E\xA0-\xFF\n]/g, '?');
 }
 
-async function buildEditedPdfBytes() {
+async function saveEditedPdf() {
+  const btn = $('ed-save-btn');
+  busy(btn, true, 'Saving…');
+  try {
     edDeselect();
     const src = pdfFiles[ed.fileIndex];
     const doc = await PDFDocument.load(src.bytes);
@@ -2735,7 +2183,9 @@ async function buildEditedPdfBytes() {
       const sx = pw / p.w, sy = ph / p.h;   // css px -> pdf pt
 
       // 1) redactions for edited text — cover the original wording first
-      for (const r of p.redacts) {
+      for (const obj of p.texts) {
+        if (!obj.dataset.redact) continue;
+        const r = JSON.parse(obj.dataset.redact);
         const c = hexToRgb01(r.c || '#ffffff');
         page.drawRectangle({
           x: r.x * sx, y: ph - (r.y + r.h) * sy,
@@ -2820,38 +2270,13 @@ async function buildEditedPdfBytes() {
       }
     }
 
-    return doc.save();
-}
-
-async function saveEditedPdf() {
-  const btn = $('ed-save-btn');
-  busy(btn, true, 'Saving…');
-  try {
-    const src = pdfFiles[ed.fileIndex];
-    const bytes = await buildEditedPdfBytes();
+    const bytes = await doc.save();
     updatePdf(ed.fileIndex, bytes);
     download(bytes, `edited_${src.name}`, 'application/pdf');
     ed.hasChanges = false;
-    toast('Edited PDF downloaded — workspace copy updated & autosaved on this device');
+    toast('Edited PDF saved (workspace copy updated too)');
   } catch (e) { console.error(e); toast('Save failed: ' + e.message, 'err', 5000); }
   busy(btn, false);
-}
-
-/* apply edits to the workspace copy WITHOUT downloading — lets you jump to
-   another tool and come back without losing anything */
-async function applyEditedPdf(btn) {
-  btn = btn || $('ed-apply-btn');
-  busy(btn, true, 'Applying…');
-  let ok = false;
-  try {
-    const bytes = await buildEditedPdfBytes();
-    updatePdf(ed.fileIndex, bytes);
-    ed.hasChanges = false;
-    ok = true;
-    toast('Edits applied — kept in your workspace & autosaved on this device');
-  } catch (e) { console.error(e); toast('Apply failed: ' + e.message, 'err', 5000); }
-  busy(btn, false);
-  return ok;
 }
 
 function rgbToHex(cssColor) {
@@ -2870,20 +2295,23 @@ const org = {
   docs: [],        // [{bytes, pdfjs}] — source documents (main + inserted PDFs)
   entries: [],     // {type:'src', doc, page, rot} | {type:'blank'} | {type:'image', dataUrl, mime, w, h}
   selected: -1,
-  hasChanges: false,
-  _squelchClick: false,
 };
 
 async function openOrganize() {
   if (!pdfFiles.length) { toast('Open a PDF first', 'err'); return; }
-  const pickO = await pickFile('Which PDF do you want to organize?');
-  if (pickO === null) return;
-  org.fileIndex = pickO;
+  org.fileIndex = 0;
+  if (pdfFiles.length > 1) {
+    const pick = prompt('Which file do you want to organize?\n' +
+      pdfFiles.map((f, i) => `${i + 1}. ${f.name}`).join('\n') + '\n\nEnter a number:', '1');
+    const n = parseInt(pick);
+    if (!n || n < 1 || n > pdfFiles.length) return;
+    org.fileIndex = n - 1;
+  }
   showView('view-organize');
   $('org-filename').textContent = pdfFiles[org.fileIndex].name;
   const grid = $('org-grid');
-  grid.innerHTML = '<div class="skel-thumb"></div>'.repeat(8);
-  org.docs = []; org.entries = []; org.selected = -1; org.hasChanges = false;
+  grid.innerHTML = '<p class="note"><i class="fas fa-circle-notch spin"></i> Loading pages…</p>';
+  org.docs = []; org.entries = []; org.selected = -1;
 
   try {
     const bytes = pdfFiles[org.fileIndex].bytes;
@@ -2904,21 +2332,13 @@ async function renderOrgGrid() {
     const entry = org.entries[i];
     const cell = document.createElement('div');
     cell.className = 'org-thumb' + (i === org.selected ? ' selected' : '');
-    cell.onclick = () => {
-      if (org._squelchClick) { org._squelchClick = false; return; }
-      org.selected = (org.selected === i ? -1 : i); refreshOrgSelection();
-    };
+    cell.onclick = () => { org.selected = (org.selected === i ? -1 : i); refreshOrgSelection(); };
 
     let media;
-    if (entry.type === 'src' && entry._thumb) {
-      media = document.createElement('img');
-      media.className = 'th-canvas';
-      media.src = entry._thumb;
-    } else if (entry.type === 'src') {
+    if (entry.type === 'src') {
       media = document.createElement('canvas');
       media.className = 'th-canvas';
       await renderOrgThumb(entry, media);
-      try { entry._thumb = media.toDataURL(); } catch (e) {}
     } else if (entry.type === 'blank') {
       media = document.createElement('div');
       media.className = 'th-canvas';
@@ -2945,119 +2365,8 @@ async function renderOrgGrid() {
     if (entry.type === 'src' && entry.doc > 0) {
       const b = document.createElement('span'); b.className = 'th-badge'; b.textContent = 'INSERTED'; cell.appendChild(b);
     }
-
-    const grip = document.createElement('span');
-    grip.className = 'th-grip';
-    grip.title = 'Drag to reorder';
-    grip.innerHTML = '<i class="fas fa-grip-vertical"></i>';
-    cell.appendChild(grip);
-
-    orgDragInit(cell, i);
     grid.appendChild(cell);
   }
-}
-
-/* ---------------- organize: drag & drop reordering ---------------- */
-function orgDragInit(cell, index) {
-  cell.addEventListener('pointerdown', (e) => {
-    if (e.button !== undefined && e.button !== 0) return;
-    const fromGrip = !!e.target.closest('.th-grip');
-    const startX = e.clientX, startY = e.clientY;
-    let started = false, timer = null;
-
-    const start = () => {
-      if (started) return;
-      started = true;
-      beginOrgDrag(cell, index, e.pointerId, startX, startY);
-    };
-    const cleanup = () => {
-      clearTimeout(timer);
-      cell.removeEventListener('pointermove', move);
-      cell.removeEventListener('pointerup', up);
-      cell.removeEventListener('pointercancel', up);
-    };
-    const move = (ev) => {
-      if (started) return;
-      const d = Math.hypot(ev.clientX - startX, ev.clientY - startY);
-      if (ev.pointerType === 'touch') {
-        if (d > 9) cleanup();            // user is scrolling — abort long-press
-      } else if (d > 5) {
-        start(); cleanup();              // mouse/pen: drag starts on movement
-      }
-    };
-    const up = () => cleanup();
-
-    if (fromGrip) { e.preventDefault(); start(); return; }
-    if (e.pointerType === 'touch') timer = setTimeout(() => { start(); cleanup(); }, 280); // press & hold
-    cell.addEventListener('pointermove', move);
-    cell.addEventListener('pointerup', up);
-    cell.addEventListener('pointercancel', up);
-  });
-}
-
-function beginOrgDrag(cell, index, pointerId, cx, cy) {
-  const grid = $('org-grid');
-  const cells = Array.from(grid.children);
-  try { cell.setPointerCapture(pointerId); } catch (e) {}
-  if (navigator.vibrate) { try { navigator.vibrate(8); } catch (e) {} }
-
-  const ghost = document.createElement('div');
-  ghost.className = 'drag-ghost';
-  const media = cell.querySelector('.th-canvas');
-  let src = '';
-  if (media && media.tagName === 'CANVAS') { try { src = media.toDataURL(); } catch (e) {} }
-  else if (media && media.tagName === 'IMG') src = media.src;
-  ghost.innerHTML = src
-    ? `<img src="${src}" alt="">`
-    : '<div style="aspect-ratio:3/4;display:grid;place-items:center;color:var(--faint)"><i class="far fa-file"></i></div>';
-  ghost.style.left = cx + 'px'; ghost.style.top = cy + 'px';
-  document.body.appendChild(ghost);
-  cell.classList.add('drag-src');
-
-  let dropIndex = index;
-  const move = (e) => {
-    e.preventDefault();
-    ghost.style.left = e.clientX + 'px';
-    ghost.style.top = e.clientY + 'px';
-    dropIndex = orgDropIndexAt(e.clientX, e.clientY, cells);
-    cells.forEach(c => c.classList.remove('drop-before', 'drop-after'));
-    if (dropIndex >= cells.length) cells[cells.length - 1].classList.add('drop-after');
-    else cells[dropIndex].classList.add('drop-before');
-    // auto-scroll near the viewport edges
-    if (e.clientY < 90) window.scrollBy(0, -16);
-    else if (e.clientY > window.innerHeight - 90) window.scrollBy(0, 16);
-  };
-  const up = () => {
-    document.removeEventListener('pointermove', move);
-    document.removeEventListener('pointerup', up);
-    document.removeEventListener('pointercancel', up);
-    ghost.remove();
-    cells.forEach(c => c.classList.remove('drop-before', 'drop-after'));
-    cell.classList.remove('drag-src');
-    org._squelchClick = true;
-    setTimeout(() => { org._squelchClick = false; }, 250);
-    let to = dropIndex;
-    if (to > index) to--;
-    if (to !== index && to >= 0 && to <= org.entries.length - 1) {
-      const [it] = org.entries.splice(index, 1);
-      org.entries.splice(to, 0, it);
-      org.selected = to;
-      org.hasChanges = true;
-      renderOrgGrid();
-    }
-  };
-  document.addEventListener('pointermove', move);
-  document.addEventListener('pointerup', up);
-  document.addEventListener('pointercancel', up);
-}
-
-function orgDropIndexAt(x, y, cells) {
-  for (let i = 0; i < cells.length; i++) {
-    const r = cells[i].getBoundingClientRect();
-    if (y < r.top) return i;
-    if (y <= r.bottom && x < r.left + r.width / 2) return i;
-  }
-  return cells.length;
 }
 
 function refreshOrgSelection() {
@@ -3083,7 +2392,6 @@ function orgRotate(deg) {
   if (!orgRequireSelection()) return;
   const e = org.entries[org.selected];
   e.rot = ((e.rot + deg) % 360 + 360) % 360;
-  org.hasChanges = true;
   renderOrgGrid();
 }
 
@@ -3093,14 +2401,12 @@ function orgMove(dir) {
   if (j < 0 || j >= org.entries.length) return;
   [org.entries[org.selected], org.entries[j]] = [org.entries[j], org.entries[org.selected]];
   org.selected = j;
-  org.hasChanges = true;
   renderOrgGrid();
 }
 
 function orgDuplicate() {
   if (!orgRequireSelection()) return;
   org.entries.splice(org.selected + 1, 0, { ...org.entries[org.selected] });
-  org.hasChanges = true;
   renderOrgGrid();
 }
 
@@ -3109,7 +2415,6 @@ function orgDelete() {
   if (org.entries.length === 1) { toast('A PDF needs at least one page', 'err'); return; }
   org.entries.splice(org.selected, 1);
   org.selected = -1;
-  org.hasChanges = true;
   renderOrgGrid();
 }
 
@@ -3119,7 +2424,6 @@ function orgInsertAt() {
 
 function orgInsertBlank() {
   org.entries.splice(orgInsertAt(), 0, { type: 'blank', rot: 0 });
-  org.hasChanges = true;
   renderOrgGrid();
   toast('Blank page inserted');
 }
@@ -3136,7 +2440,6 @@ async function orgInsertPdf(file) {
     const newEntries = [];
     for (let i = 0; i < pdfjs.numPages; i++) newEntries.push({ type: 'src', doc: docIdx, page: i, rot: 0 });
     org.entries.splice(at, 0, ...newEntries);
-    org.hasChanges = true;
     await renderOrgGrid();
     toast(`${pdfjs.numPages} page${pdfjs.numPages > 1 ? 's' : ''} inserted from ${file.name}`);
   } catch (e) { toast('Could not insert that PDF: ' + e.message, 'err'); }
@@ -3160,12 +2463,14 @@ async function orgInsertImages(files) {
     newEntries.push({ type: 'image', dataUrl, mime: f.type, w: dims[0], h: dims[1], rot: 0 });
   }
   org.entries.splice(at, 0, ...newEntries);
-  org.hasChanges = true;
   await renderOrgGrid();
   toast(`${newEntries.length} image page${newEntries.length > 1 ? 's' : ''} inserted`);
 }
 
-async function buildOrganizedPdfBytes() {
+async function saveOrganizedPdf() {
+  const btn = $('org-save-btn');
+  busy(btn, true, 'Saving…');
+  try {
     const out = await PDFDocument.create();
     const libDocs = [];
     for (const d of org.docs) libDocs.push(await PDFDocument.load(d.bytes));
@@ -3194,49 +2499,12 @@ async function buildOrganizedPdfBytes() {
       }
     }
 
-    return out.save();
-}
-
-async function saveOrganizedPdf() {
-  const btn = $('org-save-btn');
-  busy(btn, true, 'Saving…');
-  try {
-    const bytes = await buildOrganizedPdfBytes();
+    const bytes = await out.save();
     updatePdf(org.fileIndex, bytes);
     download(bytes, `organized_${pdfFiles[org.fileIndex].name}`, 'application/pdf');
-    org.hasChanges = false;
-    toast('Organized PDF downloaded — workspace copy updated & autosaved on this device');
+    toast('Organized PDF saved (workspace copy updated too)');
   } catch (e) { console.error(e); toast('Save failed: ' + e.message, 'err', 5000); }
   busy(btn, false);
-}
-
-async function applyOrganizedPdf(btn) {
-  btn = btn || $('org-apply-btn');
-  busy(btn, true, 'Applying…');
-  let ok = false;
-  try {
-    const bytes = await buildOrganizedPdfBytes();
-    updatePdf(org.fileIndex, bytes);
-    org.hasChanges = false;
-    ok = true;
-    toast('Page order applied — kept in your workspace & autosaved on this device');
-  } catch (e) { console.error(e); toast('Apply failed: ' + e.message, 'err', 5000); }
-  busy(btn, false);
-  return ok;
-}
-
-async function confirmLeaveOrganize() {
-  if (org.hasChanges) {
-    const c = await pickSheet('You have unapplied page changes',
-      'Keep the new page order in your workspace copy, or discard it?', [
-        { label: 'Apply & leave', sub: 'Autosaved on this device', icon: 'fas fa-check', value: 'apply' },
-        { label: 'Discard changes', icon: 'far fa-trash-can', value: 'discard', danger: true },
-      ]);
-    if (c === null) return;
-    if (c === 'apply') { const ok = await applyOrganizedPdf(); if (!ok) return; }
-  }
-  org.hasChanges = false;
-  showView('view-workspace');
 }
 
 /* ================================================================
@@ -3267,9 +2535,7 @@ function toggleTheme() {
    INIT
    ================================================================ */
 window.addEventListener('beforeunload', (e) => {
-  const editing = ed.hasChanges && $('view-editor').classList.contains('active');
-  const organizing = org.hasChanges && $('view-organize').classList.contains('active');
-  if (editing || organizing) {
+  if (ed.hasChanges && $('view-editor').classList.contains('active')) {
     e.preventDefault();
     e.returnValue = '';
   }
