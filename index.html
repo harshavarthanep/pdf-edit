@@ -3005,6 +3005,10 @@ async function ensureTextLayer(p) {
   try {
     const page = await ed.pdfDoc.getPage(p.index + 1);
     const tc = await page.getTextContent();
+    const styles = tc.styles || {};
+    // force pdf.js to load every font object so the REAL font names,
+    // weights and slants are readable below (cheap — the result is cached)
+    try { await page.getOperatorList(); } catch (e0) {}
     for (const it of tc.items) {
       if (!it.str || !it.str.trim()) continue;
       const tx = pdfjsLib.Util.transform(p.viewport.transform, it.transform);
@@ -3021,14 +3025,33 @@ async function ensureTextLayer(p) {
       hit.dataset.str = it.str;
       hit.dataset.fh = fh;
       try {
+        // 1) resolve the REAL font name (e.g. "Arial-BoldMT"), not pdf.js's
+        //    internal id like "g_d0_f3" — the id matches none of the patterns
+        //    below, which is what made everything fall back to plain Helvetica
         let fname = it.fontName || '';
-        try { const fo = page.commonObjs.get(it.fontName); if (fo && fo.name) fname = fo.name; } catch (e2) {}
-        hit.dataset.fam =
-          /courier|mono|consol|menlo|typewriter/i.test(fname) ? 'Courier'
-          : /times|serif|georgia|garamond|book|cambria|palatino|minion|roman|charter|constantia|didot|baskerv|caslon/i.test(fname) ? 'Times'
-          : 'Helvetica';
-        hit.dataset.fbold = /bold|black|heavy|semib|demib|extrab|[-_ ]([79]00|800)/i.test(fname) ? '1' : '';
-        hit.dataset.fitalic = /italic|oblique/i.test(fname) ? '1' : '';
+        let fo = null;
+        try {
+          if (page.commonObjs.has(it.fontName)) fo = page.commonObjs.get(it.fontName);
+        } catch (e2) {}
+        if (fo && fo.name) fname = fo.name;
+
+        // 2) family — real name first; if the name is still internal/unknown,
+        //    fall back to the generic family pdf.js reports for this style
+        const st = styles[it.fontName] || {};
+        const generic = (st.fontFamily || '').toLowerCase();
+        const isInternal = !fname || /^g_d\d+_f\d+$/i.test(fname);
+        if (/courier|mono|consol|menlo|typewriter/i.test(fname)) hit.dataset.fam = 'Courier';
+        else if (/times|serif|georgia|garamond|book|cambria|palatino|minion|roman|charter|constantia|didot|baskerv|caslon/i.test(fname)) hit.dataset.fam = 'Times';
+        else if (isInternal && generic.includes('mono')) hit.dataset.fam = 'Courier';
+        else if (isInternal && /serif/.test(generic) && !/sans/.test(generic)) hit.dataset.fam = 'Times';
+        else hit.dataset.fam = 'Helvetica';
+
+        // 3) weight & slant — pdf.js's font object knows these from the font's
+        //    own flags, which is far more reliable than name sniffing alone
+        hit.dataset.fbold = ((fo && (fo.bold || fo.black)) ||
+          /bold|black|heavy|semib|demib|extrab|[-_ ]([79]00|800)/i.test(fname)) ? '1' : '';
+        hit.dataset.fitalic = ((fo && fo.italic) ||
+          /italic|oblique/i.test(fname)) ? '1' : '';
       } catch (e3) {}
       hit.title = 'Click to edit this text';
       hit.addEventListener('pointerdown', (e) => {
