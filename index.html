@@ -2537,7 +2537,7 @@ async function procRotate(btn) {
 //   busy(btn, false);
 // }
 
-  /* ---- pdf -> word — only the ticked PDFs are converted ---- */
+  /* ---- pdf -> word — professional coordinate-mapping layout engine ---- */
 async function procPdf2Word(btn) {
   const chosen = pdfFiles.filter(f => isSel(f, 'conv'));
   if (!chosen.length) { toast('Tick at least one PDF to convert', 'err', 2600); return; }
@@ -2551,55 +2551,47 @@ async function procPdf2Word(btn) {
         <meta charset='utf-8'>
         <title>${escapeHtml(f.name)}</title>
         <style>
-          body { font-family: 'Arial', 'Helvetica Neue', Helvetica, sans-serif; font-size: 11pt; line-height: 1.4; color: #1d1d1f; }
-          p { margin: 0 0 6pt 0; min-height: 14pt; white-space: pre-wrap; }
-          .page-break { page-break-after: always; mso-break-type: section-break; }
+          body { margin: 0; padding: 0; background-color: #ffffff; }
+          /* Establish high-fidelity point tracking blocks that Word parses into standard pages */
+          .pdf-page { position: relative; background-color: #ffffff; overflow: hidden; page-break-after: always; mso-break-type: section-break; }
+          .pdf-text { position: absolute; white-space: nowrap; line-height: 1.0; multiplier: 1.0; }
         </style>
       </head>
       <body>`;
       
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
+        // Base scale 1.0 locks native PDF points (1/72 inch) 1:1 to Word points (pt)
+        const viewport = page.getViewport({ scale: 1.0 }); 
+        const pw = viewport.width;
+        const ph = viewport.height;
+        
+        html += `<div class="pdf-page" style="width: ${pw.toFixed(1)}pt; height: ${ph.toFixed(1)}pt;">`;
+        
         const txt = await page.getTextContent();
         
-        // Group individual strings by their vertical Y baseline coordinate
-        const lineMap = {};
         txt.items.forEach(item => {
           if (!item.str || !item.str.trim()) return;
-          // Group rows within a tiny 3pt threshold to account for slight baseline shifts
-          const y = Math.round(item.transform[5] / 3) * 3;
-          if (!lineMap[y]) lineMap[y] = [];
-          lineMap[y].push({ x: item.transform[4], s: item.str });
+          
+          // Extract exact coordinates from the matrix transform array [scaleX, skewX, skewY, scaleY, translateX, translateY]
+          const left = item.transform[4];
+          const yBaseline = item.transform[5];
+          
+          // Derive the true character block height from font matrix mapping
+          const fh = Math.hypot(item.transform[2], item.transform[3]) || item.height || 10;
+          
+          // Convert PDF bottom-left origin mapping into HTML top-left standard tracking
+          const top = ph - yBaseline - (fh * 0.82);
+          
+          // Safe font-fallback translation
+          let fontFamily = "Arial, sans-serif";
+          if (/courier|mono/i.test(item.fontName)) fontFamily = "Courier New, monospace";
+          else if (/times|serif|roman/i.test(item.fontName)) fontFamily = "Times New Roman, serif";
+          
+          html += `<div class="pdf-text" style="left: ${left.toFixed(1)}pt; top: ${top.toFixed(1)}pt; font-size: ${fh.toFixed(1)}pt; font-family: ${fontFamily};">${escapeHtml(item.str)}</div>`;
         });
         
-        // Sort lines from top to bottom (Y descending)
-        const sortedY = Object.keys(lineMap).sort((a, b) => b - a);
-        
-        sortedY.forEach(y => {
-          // Sort character segments within a line from left to right (X ascending)
-          const lineItems = lineMap[y].sort((a, b) => a.x - b.x);
-          
-          // Reconstruct words dynamically with space separation logic
-          let lineStr = "";
-          let lastX = null;
-          
-          lineItems.forEach(item => {
-            if (lastX !== null && (item.x - lastX) > 12) {
-              lineStr += " "; // Add space breakdown for horizontal spacing gaps
-            }
-            lineStr += item.s;
-            lastX = item.x + (item.s.length * 4); // Approximate character termination
-          });
-          
-          if (lineStr.trim()) {
-            html += `<p>${escapeHtml(lineStr.replace(/\s+/g, ' '))}</p>`;
-          }
-        });
-        
-        // Insert standard Word native section breaks between pages
-        if (i < pdf.numPages) {
-          html += `<div class="page-break"></div>`;
-        }
+        html += `</div>`;
       }
       
       html += '</body></html>';
