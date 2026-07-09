@@ -4088,13 +4088,34 @@ function bindSigErase(cv) {
   cv.addEventListener('pointercancel', stop);
 }
 
-/* render a typed name into a transparent PNG signature (Great Vibes, Brush Script MT etc.) */
+// /* render a typed name into a transparent PNG signature (Great Vibes, Brush Script MT etc.) */
+// function renderTypedSignature(text, fontCss, color) {
+//   const pad = 24, fontPx = 84;
+//   const meas = document.createElement('canvas').getContext('2d');
+//   meas.font = `${fontPx}px ${fontCss}`;
+//   const w = Math.ceil(meas.measureText(text).width) + pad * 2;
+//   const h = fontPx + pad * 2;
+//   const cv = document.createElement('canvas');
+//   const dpr = 2;
+//   cv.width = w * dpr; cv.height = h * dpr;
+//   const ctx = cv.getContext('2d');
+//   ctx.scale(dpr, dpr);
+//   ctx.font = `${fontPx}px ${fontCss}`;
+//   ctx.fillStyle = color || '#1a237e';
+//   ctx.textBaseline = 'middle';
+//   ctx.fillText(text, pad, h / 2);
+//   return cv.toDataURL('image/png');
+// }
+
+  /* render a typed name into a transparent PNG signature (Great Vibes, Brush Script MT etc.) */
 function renderTypedSignature(text, fontCss, color) {
-  const pad = 24, fontPx = 84;
+  // Increased padding to give wild ascenders/descenders room so they never clip
+  const padX = 50, padY = 80, fontPx = 84; 
   const meas = document.createElement('canvas').getContext('2d');
   meas.font = `${fontPx}px ${fontCss}`;
-  const w = Math.ceil(meas.measureText(text).width) + pad * 2;
-  const h = fontPx + pad * 2;
+  const w = Math.ceil(meas.measureText(text).width) + padX * 2;
+  const h = fontPx + padY * 2; // Taller drawing area for script tails
+  
   const cv = document.createElement('canvas');
   const dpr = 2;
   cv.width = w * dpr; cv.height = h * dpr;
@@ -4103,8 +4124,11 @@ function renderTypedSignature(text, fontCss, color) {
   ctx.font = `${fontPx}px ${fontCss}`;
   ctx.fillStyle = color || '#1a237e';
   ctx.textBaseline = 'middle';
-  ctx.fillText(text, pad, h / 2);
-  return cv.toDataURL('image/png');
+  ctx.fillText(text, padX, h / 2);
+  
+  // CRITICAL FIX: Run the canvas through trimCanvas to auto-crop excess whitespace.
+  // This restores the perfect, tight bounding box look for your typing region!
+  return trimCanvas(cv) || cv.toDataURL('image/png');
 }
 
 async function renameSig(i) {
