@@ -2511,6 +2511,33 @@ async function procRotate(btn) {
 }
 
 /* ---- pdf -> word — only the ticked PDFs are converted ---- */
+// async function procPdf2Word(btn) {
+//   const chosen = pdfFiles.filter(f => isSel(f, 'conv'));
+//   if (!chosen.length) { toast('Tick at least one PDF to convert', 'err', 2600); return; }
+//   busy(btn, true, 'Converting…');
+//   try {
+//     const out = {};
+//     for (const f of chosen) {
+//       const pdf = await pdfjsLoad(f.bytes);
+//       let html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word'><head><meta charset='utf-8'><title>${escapeHtml(f.name)}</title></head><body>`;
+//       for (let i = 1; i <= pdf.numPages; i++) {
+//         const page = await pdf.getPage(i);
+//         const viewport = page.getViewport({ scale: 1.5 });
+//         const canvas = document.createElement('canvas');
+//         canvas.width = viewport.width; canvas.height = viewport.height;
+//         await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+//         html += `<p><img src="${canvas.toDataURL('image/jpeg', 0.82)}" width="${Math.round(viewport.width)}" height="${Math.round(viewport.height)}"></p><br>`;
+//       }
+//       html += '</body></html>';
+//       out[`${baseName(f.name)}.doc`] = new Blob([html], { type: 'application/msword' });
+//     }
+//     await bulkDownload(out, 'pdf_to_word.zip');
+//     toast('Word document ready');
+//   } catch (e) { toast(e.message, 'err'); }
+//   busy(btn, false);
+// }
+
+  /* ---- pdf -> word — only the ticked PDFs are converted ---- */
 async function procPdf2Word(btn) {
   const chosen = pdfFiles.filter(f => isSel(f, 'conv'));
   if (!chosen.length) { toast('Tick at least one PDF to convert', 'err', 2600); return; }
@@ -2519,21 +2546,68 @@ async function procPdf2Word(btn) {
     const out = {};
     for (const f of chosen) {
       const pdf = await pdfjsLoad(f.bytes);
-      let html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word'><head><meta charset='utf-8'><title>${escapeHtml(f.name)}</title></head><body>`;
+      let html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word'>
+      <head>
+        <meta charset='utf-8'>
+        <title>${escapeHtml(f.name)}</title>
+        <style>
+          body { font-family: 'Arial', 'Helvetica Neue', Helvetica, sans-serif; font-size: 11pt; line-height: 1.4; color: #1d1d1f; }
+          p { margin: 0 0 6pt 0; min-height: 14pt; white-space: pre-wrap; }
+          .page-break { page-break-after: always; mso-break-type: section-break; }
+        </style>
+      </head>
+      <body>`;
+      
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale: 1.5 });
-        const canvas = document.createElement('canvas');
-        canvas.width = viewport.width; canvas.height = viewport.height;
-        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-        html += `<p><img src="${canvas.toDataURL('image/jpeg', 0.82)}" width="${Math.round(viewport.width)}" height="${Math.round(viewport.height)}"></p><br>`;
+        const txt = await page.getTextContent();
+        
+        // Group individual strings by their vertical Y baseline coordinate
+        const lineMap = {};
+        txt.items.forEach(item => {
+          if (!item.str || !item.str.trim()) return;
+          // Group rows within a tiny 3pt threshold to account for slight baseline shifts
+          const y = Math.round(item.transform[5] / 3) * 3;
+          if (!lineMap[y]) lineMap[y] = [];
+          lineMap[y].push({ x: item.transform[4], s: item.str });
+        });
+        
+        // Sort lines from top to bottom (Y descending)
+        const sortedY = Object.keys(lineMap).sort((a, b) => b - a);
+        
+        sortedY.forEach(y => {
+          // Sort character segments within a line from left to right (X ascending)
+          const lineItems = lineMap[y].sort((a, b) => a.x - b.x);
+          
+          // Reconstruct words dynamically with space separation logic
+          let lineStr = "";
+          let lastX = null;
+          
+          lineItems.forEach(item => {
+            if (lastX !== null && (item.x - lastX) > 12) {
+              lineStr += " "; // Add space breakdown for horizontal spacing gaps
+            }
+            lineStr += item.s;
+            lastX = item.x + (item.s.length * 4); // Approximate character termination
+          });
+          
+          if (lineStr.trim()) {
+            html += `<p>${escapeHtml(lineStr.replace(/\s+/g, ' '))}</p>`;
+          }
+        });
+        
+        // Insert standard Word native section breaks between pages
+        if (i < pdf.numPages) {
+          html += `<div class="page-break"></div>`;
+        }
       }
+      
       html += '</body></html>';
       out[`${baseName(f.name)}.doc`] = new Blob([html], { type: 'application/msword' });
     }
     await bulkDownload(out, 'pdf_to_word.zip');
     toast('Word document ready');
-  } catch (e) { toast(e.message, 'err'); }
+  } catch (e) { console.error(e); toast(e.message, 'err'); }
   busy(btn, false);
 }
 
