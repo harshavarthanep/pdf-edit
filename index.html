@@ -7,7 +7,7 @@
 <meta name="description" content="Edit, organize, merge, split, watermark and convert PDFs — 100% in your browser. Your files never leave your device.">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=Great+Vibes&family=Dancing+Script:wght@500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=Great+Vibes&family=Homemade+Apple&family=Dancing+Script:wght@500;600&display=swap" rel="stylesheet">
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
 
 <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
@@ -3727,7 +3727,7 @@ let sigMode = 'draw';
    Great Vibes webfont — a true handwritten-signature look */
 const SIG_FONTS = [
   { name: 'Brush Script', css: "'Brush Script MT','Brush Script Std','Segoe Script','Snell Roundhand',cursive" },
-  { name: 'Flow', css: "'Dancing Script','Segoe Script','Snell Roundhand',cursive" },
+  { name: 'Flow', css: "'Homemade Apple','Segoe Script','Bradley Hand',cursive" },
   { name: 'Signature', css: "'Great Vibes','Dancing Script','Brush Script MT',cursive" },
 ];
 let sigTypeFont = 0;
@@ -3760,7 +3760,7 @@ function sigSetColor(c) {
 function openSigPad() {
   if (!ed.pages.length) { toast('Open the editor with a PDF first', 'err'); return; }
   // warm up the signature webfonts so the typed preview renders correctly
-  try { document.fonts.load("84px 'Great Vibes'"); document.fonts.load("84px 'Dancing Script'"); } catch (e) {}
+  try { document.fonts.load("84px 'Great Vibes'"); document.fonts.load("84px 'Homemade Apple'"); } catch (e) {}
   window._sigUpload = null; window._sigUploadSrc = null; window._sigEraseBound = false;
   const sigs = loadSigs();
   const gallery = sigs.length ? `
