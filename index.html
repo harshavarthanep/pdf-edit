@@ -2511,33 +2511,6 @@ async function procRotate(btn) {
 }
 
 /* ---- pdf -> word — only the ticked PDFs are converted ---- */
-// async function procPdf2Word(btn) {
-//   const chosen = pdfFiles.filter(f => isSel(f, 'conv'));
-//   if (!chosen.length) { toast('Tick at least one PDF to convert', 'err', 2600); return; }
-//   busy(btn, true, 'Converting…');
-//   try {
-//     const out = {};
-//     for (const f of chosen) {
-//       const pdf = await pdfjsLoad(f.bytes);
-//       let html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word'><head><meta charset='utf-8'><title>${escapeHtml(f.name)}</title></head><body>`;
-//       for (let i = 1; i <= pdf.numPages; i++) {
-//         const page = await pdf.getPage(i);
-//         const viewport = page.getViewport({ scale: 1.5 });
-//         const canvas = document.createElement('canvas');
-//         canvas.width = viewport.width; canvas.height = viewport.height;
-//         await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-//         html += `<p><img src="${canvas.toDataURL('image/jpeg', 0.82)}" width="${Math.round(viewport.width)}" height="${Math.round(viewport.height)}"></p><br>`;
-//       }
-//       html += '</body></html>';
-//       out[`${baseName(f.name)}.doc`] = new Blob([html], { type: 'application/msword' });
-//     }
-//     await bulkDownload(out, 'pdf_to_word.zip');
-//     toast('Word document ready');
-//   } catch (e) { toast(e.message, 'err'); }
-//   busy(btn, false);
-// }
-
-  /* ---- pdf -> word — Advanced Spatial Layout Reconstruction ---- */
 async function procPdf2Word(btn) {
   const chosen = pdfFiles.filter(f => isSel(f, 'conv'));
   if (!chosen.length) { toast('Tick at least one PDF to convert', 'err', 2600); return; }
@@ -2546,108 +2519,135 @@ async function procPdf2Word(btn) {
     const out = {};
     for (const f of chosen) {
       const pdf = await pdfjsLoad(f.bytes);
-      
-      // Initialize the Word HTML-Document wrapper with Word-native structural styles
-      let html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word'>
-      <head>
-        <meta charset='utf-8'>
-        <title>${escapeHtml(f.name)}</title>
-        <style>
-          @page { size: 8.5in 11in; margin: 0in; }
-          body { margin: 0; padding: 0; background-color: #ffffff; }
-          .page-container {
-            position: relative;
-            page-break-after: always;
-            mso-break-type: section-break;
-            overflow: hidden;
-            background-color: #ffffff;
-          }
-          .absolute-text {
-            position: absolute;
-            white-space: nowrap;
-            line-height: 1.0;
-          }
-        </style>
-      </head>
-      <body>`;
-      
-      // Force loading of font resources via Operator List parsing
+      let html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word'><head><meta charset='utf-8'><title>${escapeHtml(f.name)}</title></head><body>`;
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
-        try { await page.getOperatorList(); } catch(e) {}
-        
-        // Render at native PDF point scale (1 point = 1/72 inch) for pixel-perfect Word compatibility
-        const viewport = page.getViewport({ scale: 1.0 });
-        const pW = viewport.width;
-        const pH = viewport.height;
-        
-        html += `<div class="page-container" style="width: ${pW}pt; height: ${pH}pt;">`;
-        
-        const tc = await page.getTextContent();
-        const styles = tc.styles || {};
-        
-        for (const item of tc.items) {
-          if (!item.str || !item.str.trim()) continue;
-          
-          // Calculate the item's true position vectors
-          const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
-          const fontPx = Math.hypot(tx[2], tx[3]); // Native structural font size
-          
-          if (fontPx < 4) continue;
-          
-          const left = tx[4];
-          const top = pH - tx[5] - (fontPx * 0.2); // Invert Y-axis from PDF origin to HTML top-left coordinate system
-          
-          // sniffer variables for fonts
-          let fname = item.fontName || '';
-          let fontFamily = 'Arial, Helvetica, sans-serif';
-          let fontWeight = 'normal';
-          let fontStyle = 'normal';
-          
-          // Resolve internal font objects to readable names if registered
-          try {
-            if (page.commonObjs.has(item.fontName)) {
-              const fo = page.commonObjs.get(item.fontName);
-              if (fo && fo.name) fname = fo.name;
-            }
-          } catch(e) {}
-          
-          // Sniff typography variants from properties
-          if (/bold|black|heavy|semib|[-_ ]700|[-_ ]800/i.test(fname)) fontWeight = 'bold';
-          if (/italic|oblique/i.test(fname)) fontStyle = 'italic';
-          
-          // Match matching font families for Word mapping
-          if (/courier|mono|consol/i.test(fname)) {
-            fontFamily = "'Courier New', Courier, monospace";
-          } else if (/times|serif|georgia|garamond/i.test(fname)) {
-            fontFamily = "'Times New Roman', Times, serif";
-          }
-          
-          // Append absolutely positioned text block
-          html += `<div class="absolute-text" style="
-            left: ${left.toFixed(1)}pt; 
-            top: ${top.toFixed(1)}pt; 
-            font-family: ${fontFamily}; 
-            font-size: ${fontPx.toFixed(1)}pt; 
-            font-weight: ${fontWeight}; 
-            font-style: ${fontStyle}; 
-            color: #1d1d1f;">${escapeHtml(item.str)}</div>`;
-        }
-        
-        html += `</div>`; // Close page wrapper container
+        const viewport = page.getViewport({ scale: 1.5 });
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width; canvas.height = viewport.height;
+        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+        html += `<p><img src="${canvas.toDataURL('image/jpeg', 0.82)}" width="${Math.round(viewport.width)}" height="${Math.round(viewport.height)}"></p><br>`;
       }
-      
       html += '</body></html>';
       out[`${baseName(f.name)}.doc`] = new Blob([html], { type: 'application/msword' });
     }
     await bulkDownload(out, 'pdf_to_word.zip');
-    toast('Editable Word document downloaded successfully!');
-  } catch (e) { 
-    console.error(e); 
-    toast('Conversion Error: ' + e.message, 'err'); 
-  }
+    toast('Word document ready');
+  } catch (e) { toast(e.message, 'err'); }
   busy(btn, false);
 }
+
+//   /* ---- pdf -> word — Advanced Spatial Layout Reconstruction ---- */
+// async function procPdf2Word(btn) {
+//   const chosen = pdfFiles.filter(f => isSel(f, 'conv'));
+//   if (!chosen.length) { toast('Tick at least one PDF to convert', 'err', 2600); return; }
+//   busy(btn, true, 'Converting…');
+//   try {
+//     const out = {};
+//     for (const f of chosen) {
+//       const pdf = await pdfjsLoad(f.bytes);
+      
+//       // Initialize the Word HTML-Document wrapper with Word-native structural styles
+//       let html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word'>
+//       <head>
+//         <meta charset='utf-8'>
+//         <title>${escapeHtml(f.name)}</title>
+//         <style>
+//           @page { size: 8.5in 11in; margin: 0in; }
+//           body { margin: 0; padding: 0; background-color: #ffffff; }
+//           .page-container {
+//             position: relative;
+//             page-break-after: always;
+//             mso-break-type: section-break;
+//             overflow: hidden;
+//             background-color: #ffffff;
+//           }
+//           .absolute-text {
+//             position: absolute;
+//             white-space: nowrap;
+//             line-height: 1.0;
+//           }
+//         </style>
+//       </head>
+//       <body>`;
+      
+//       // Force loading of font resources via Operator List parsing
+//       for (let i = 1; i <= pdf.numPages; i++) {
+//         const page = await pdf.getPage(i);
+//         try { await page.getOperatorList(); } catch(e) {}
+        
+//         // Render at native PDF point scale (1 point = 1/72 inch) for pixel-perfect Word compatibility
+//         const viewport = page.getViewport({ scale: 1.0 });
+//         const pW = viewport.width;
+//         const pH = viewport.height;
+        
+//         html += `<div class="page-container" style="width: ${pW}pt; height: ${pH}pt;">`;
+        
+//         const tc = await page.getTextContent();
+//         const styles = tc.styles || {};
+        
+//         for (const item of tc.items) {
+//           if (!item.str || !item.str.trim()) continue;
+          
+//           // Calculate the item's true position vectors
+//           const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+//           const fontPx = Math.hypot(tx[2], tx[3]); // Native structural font size
+          
+//           if (fontPx < 4) continue;
+          
+//           const left = tx[4];
+//           const top = pH - tx[5] - (fontPx * 0.2); // Invert Y-axis from PDF origin to HTML top-left coordinate system
+          
+//           // sniffer variables for fonts
+//           let fname = item.fontName || '';
+//           let fontFamily = 'Arial, Helvetica, sans-serif';
+//           let fontWeight = 'normal';
+//           let fontStyle = 'normal';
+          
+//           // Resolve internal font objects to readable names if registered
+//           try {
+//             if (page.commonObjs.has(item.fontName)) {
+//               const fo = page.commonObjs.get(item.fontName);
+//               if (fo && fo.name) fname = fo.name;
+//             }
+//           } catch(e) {}
+          
+//           // Sniff typography variants from properties
+//           if (/bold|black|heavy|semib|[-_ ]700|[-_ ]800/i.test(fname)) fontWeight = 'bold';
+//           if (/italic|oblique/i.test(fname)) fontStyle = 'italic';
+          
+//           // Match matching font families for Word mapping
+//           if (/courier|mono|consol/i.test(fname)) {
+//             fontFamily = "'Courier New', Courier, monospace";
+//           } else if (/times|serif|georgia|garamond/i.test(fname)) {
+//             fontFamily = "'Times New Roman', Times, serif";
+//           }
+          
+//           // Append absolutely positioned text block
+//           html += `<div class="absolute-text" style="
+//             left: ${left.toFixed(1)}pt; 
+//             top: ${top.toFixed(1)}pt; 
+//             font-family: ${fontFamily}; 
+//             font-size: ${fontPx.toFixed(1)}pt; 
+//             font-weight: ${fontWeight}; 
+//             font-style: ${fontStyle}; 
+//             color: #1d1d1f;">${escapeHtml(item.str)}</div>`;
+//         }
+        
+//         html += `</div>`; // Close page wrapper container
+//       }
+      
+//       html += '</body></html>';
+//       out[`${baseName(f.name)}.doc`] = new Blob([html], { type: 'application/msword' });
+//     }
+//     await bulkDownload(out, 'pdf_to_word.zip');
+//     toast('Editable Word document downloaded successfully!');
+//   } catch (e) { 
+//     console.error(e); 
+//     toast('Conversion Error: ' + e.message, 'err'); 
+//   }
+//   busy(btn, false);
+// }
 
 /* ---- pdf -> ppt — only the ticked PDFs are converted ---- */
 async function procPdf2Ppt(btn) {
