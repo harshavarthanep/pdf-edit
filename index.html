@@ -715,7 +715,15 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
   main{padding:0 12px calc(60px + env(safe-area-inset-bottom))}
   .editor-bar{top:56px;padding:7px 8px}
   /* pan-x guarantees the toolbar rows scroll sideways under a finger */
-  .bar-row{gap:6px;scrollbar-width:none;-ms-overflow-style:none;touch-action:pan-x}
+  /* .bar-row{gap:6px;scrollbar-width:none;-ms-overflow-style:none;touch-action:pan-x} */
+  .bar-row{
+    gap:6px;
+    scrollbar-width:none;
+    -ms-overflow-style:none;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    touch-action: pan-x !important;
+  }
   .bar-row::-webkit-scrollbar{display:none}
   /* the finger usually lands on a button, not the row — every child must
      allow horizontal panning too, or the bar feels stuck */
@@ -5927,15 +5935,61 @@ window.addEventListener('beforeunload', (e) => {
    captures the pointer — so drag-to-scroll is implemented directly:
    a small horizontal move on any row scrolls it, and the click that would
    otherwise fire on release is suppressed. Mouse users can drag too. */
+// function bindBarDragScroll(row) {
+//   let startX = 0, startY = 0, startScroll = 0, tracking = false, panning = false;
+//   row.addEventListener('pointerdown', (e) => {
+//     // native controls need their own gestures (range sliders, selects, inputs)
+//     if (e.target.closest('input,select,textarea')) return;
+//     tracking = true; panning = false;
+//     startX = e.clientX; startY = e.clientY;
+//     startScroll = row.scrollLeft;
+//   });
+//   row.addEventListener('pointermove', (e) => {
+//     if (!tracking) return;
+//     const dx = e.clientX - startX, dy = e.clientY - startY;
+//     if (!panning) {
+//       if (Math.abs(dx) > 7 && Math.abs(dx) > Math.abs(dy)) {
+//         panning = true;
+//         try { row.setPointerCapture(e.pointerId); } catch (err) {}
+//       } else if (Math.abs(dy) > 12) {
+//         tracking = false;   // vertical intent — let the page scroll
+//         return;
+//       }
+//     }
+//     if (panning) {
+//       e.preventDefault();
+//       row.scrollLeft = startScroll - (e.clientX - startX);
+//     }
+//   });
+//   const end = (e) => {
+//     if (panning) {
+//       // swallow the click that would otherwise trigger the button under the finger
+//       const kill = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+//       row.addEventListener('click', kill, { capture: true, once: true });
+//       setTimeout(() => row.removeEventListener('click', kill, { capture: true }), 80);
+//       try { row.releasePointerCapture(e.pointerId); } catch (err) {}
+//     }
+//     tracking = false; panning = false;
+//   };
+//   row.addEventListener('pointerup', end);
+//   row.addEventListener('pointercancel', end);
+// }
+// document.querySelectorAll('.editor-bar .bar-row').forEach(bindBarDragScroll);
+
+  /* mobile fix — let mobile touch scroll naturally via CSS, use JS only for mouse dragging */
 function bindBarDragScroll(row) {
   let startX = 0, startY = 0, startScroll = 0, tracking = false, panning = false;
+  
   row.addEventListener('pointerdown', (e) => {
-    // native controls need their own gestures (range sliders, selects, inputs)
+    // CRITICAL: Ignore touch/pen events. Mobile touch must use native CSS scrolling!
+    if (e.pointerType !== 'mouse') return;
     if (e.target.closest('input,select,textarea')) return;
+    
     tracking = true; panning = false;
     startX = e.clientX; startY = e.clientY;
     startScroll = row.scrollLeft;
   });
+  
   row.addEventListener('pointermove', (e) => {
     if (!tracking) return;
     const dx = e.clientX - startX, dy = e.clientY - startY;
@@ -5944,7 +5998,7 @@ function bindBarDragScroll(row) {
         panning = true;
         try { row.setPointerCapture(e.pointerId); } catch (err) {}
       } else if (Math.abs(dy) > 12) {
-        tracking = false;   // vertical intent — let the page scroll
+        tracking = false;   // vertical intent — let the page scroll smoothly
         return;
       }
     }
@@ -5953,9 +6007,10 @@ function bindBarDragScroll(row) {
       row.scrollLeft = startScroll - (e.clientX - startX);
     }
   });
+  
   const end = (e) => {
     if (panning) {
-      // swallow the click that would otherwise trigger the button under the finger
+      // swallow the click that would otherwise accidentally trigger the button under the finger
       const kill = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
       row.addEventListener('click', kill, { capture: true, once: true });
       setTimeout(() => row.removeEventListener('click', kill, { capture: true }), 80);
@@ -5963,6 +6018,7 @@ function bindBarDragScroll(row) {
     }
     tracking = false; panning = false;
   };
+  
   row.addEventListener('pointerup', end);
   row.addEventListener('pointercancel', end);
 }
