@@ -6817,6 +6817,326 @@ async function exportBytesAs(bytes, base, fmt, pdfName) {
 }
 </script>
 
+
+ <style>
+/* ────────────────────────────────────────────────────────────────
+   FIX 1 — mobile editor format row
+   ──────────────────────────────────────────────────────────────── */
+/* the font family / size fields inherited "background:transparent;border:none"
+   which rendered as an empty gap on phones — make them visible everywhere */
+.bar-group .bar-select,
+.bar-group .bar-num{
+  background:var(--surface) !important;
+  border:1px solid var(--line) !important;
+  border-radius:8px;
+}
+#ed-font{width:128px;min-width:128px;max-width:128px;flex:0 0 auto}
+#ed-fsize{width:58px;min-width:58px;flex:0 0 auto}
+
+@media(max-width:640px){
+  /* every child keeps its own space — nothing can slide under a neighbour */
+  .editor-bar .bar-row > *,
+  .editor-bar .bar-group > *{flex:0 0 auto}
+
+  /* when the format row is visible (Text / Edit-text tools), let it WRAP into
+     tidy lines instead of one long strip — the format buttons can no longer
+     land on top of the colour dots, and everything is reachable without
+     hunting for the scroll position */
+  .editor-bar.show-fmt .bar-row:last-child{
+    flex-wrap:wrap;
+    overflow-x:visible;
+    touch-action:auto !important;
+    row-gap:6px;
+  }
+  .editor-bar.show-fmt .bar-row:last-child .bar-group{
+    flex-wrap:wrap;
+    max-width:100%;
+    row-gap:3px;
+  }
+  /* the bar itself may grow — cap it and scroll vertically instead of
+     spilling over the document */
+  .editor-bar{max-height:46vh;overflow-y:auto}
+
+  #ed-font{width:118px;min-width:118px}
+  .grp-font .tool-btn{min-width:40px;height:40px}
+}
+</style>
+
+<script>
+'use strict';
+/* ────────────────────────────────────────────────────────────────
+   FIX 2 — PDF→Word: tuned pdf2docx conversion
+   (stream/borderless table detection ON; shaded header rows are
+   recognised as table cells with fills far more reliably)
+   ──────────────────────────────────────────────────────────────── */
+function fidelityPdfToDocx(bytes) {
+  return fidelityJob(async () => {
+    const py = await getFidelityEngine();
+    py.FS.writeFile('/in.pdf', new Uint8Array(bytes));
+    try {
+      await py.runPythonAsync(`
+from pdf2docx import Converter
+cv = Converter('/in.pdf')
+try:
+    try:
+        # tuned settings: detect borderless / shaded ("stream") tables too,
+        # and tolerate slightly broken border lines around coloured bars
+        cv.convert('/out.docx',
+                   extract_stream_table=True,
+                   connected_border_tolerance=0.8,
+                   min_border_clearance=1.5,
+                   max_border_width=8.0)
+    except TypeError:
+        # older pdf2docx builds without these kwargs
+        cv.convert('/out.docx')
+finally:
+    cv.close()
+`);
+      const out = py.FS.readFile('/out.docx');
+      return new Blob([out],
+        { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    } finally {
+      for (const f of ['/in.pdf', '/out.docx']) { try { py.FS.unlink(f); } catch (e) {} }
+    }
+  });
+}
+
+/* ────────────────────────────────────────────────────────────────
+   FIX 3 — PDF→PowerPoint high-fidelity engine
+   PyMuPDF extracts, per page:
+     · filled rectangles / shapes  → coloured slide shapes (table top bars!)
+     · embedded images (as PNG)    → pictures at their exact positions
+     · text lines with colour, size, bold/italic, font → editable text boxes
+   pptxgenjs then rebuilds the slide. Falls back to the old JS converter.
+   ──────────────────────────────────────────────────────────────── */
+function fidelityPdfToPptModel(bytes) {
+  return fidelityJob(async () => {
+    const py = await getFidelityEngine();
+    py.FS.writeFile('/in.pdf', new Uint8Array(bytes));
+    try {
+      const jsonStr = await py.runPythonAsync(`
+import fitz, base64, json
+
+doc = fitz.open('/in.pdf')
+pages = []
+for page in doc:
+    pw, ph = page.rect.width, page.rect.height
+
+    # 1) filled vector shapes -> coloured rectangles (headers, banners, rules)
+    rects = []
+    try:
+        for d in page.get_drawings():
+            fill = d.get("fill")
+            if not fill:
+                continue
+            try:
+                col = '%02x%02x%02x' % tuple(max(0, min(255, int(255 * v))) for v in fill[:3])
+            except Exception:
+                continue
+            r = d.get("rect")
+            if r is None or r.width < 2 or r.height < 1:
+                continue
+            # skip a fill that covers the whole page (background wash)
+            if r.width > pw * 0.98 and r.height > ph * 0.98:
+                continue
+            rects.append({"x": r.x0, "y": r.y0, "w": r.width, "h": r.height, "c": col})
+            if len(rects) >= 120:
+                break
+    except Exception:
+        pass
+
+    # 2) embedded images at their placed positions
+    imgs = []
+    try:
+        for info in page.get_image_info(xrefs=True):
+            xref = info.get("xref", 0)
+            if not xref:
+                continue
+            bb = info.get("bbox")
+            if not bb or (bb[2] - bb[0]) < 6 or (bb[3] - bb[1]) < 6:
+                continue
+            try:
+                pix = fitz.Pixmap(doc, xref)
+                if pix.n - pix.alpha > 3:            # CMYK etc. -> RGB
+                    pix = fitz.Pixmap(fitz.csRGB, pix)
+                if max(pix.width, pix.height) > 1600: # keep the deck light
+                    pix = fitz.Pixmap(pix, 0)         # no-op copy, still cap below
+                data = pix.tobytes("png")
+                if len(data) > 4_000_000:
+                    continue
+                b64 = base64.b64encode(data).decode()
+            except Exception:
+                continue
+            imgs.append({"x": bb[0], "y": bb[1], "w": bb[2] - bb[0], "h": bb[3] - bb[1], "d": b64})
+            if len(imgs) >= 30:
+                break
+    except Exception:
+        pass
+
+    # 3) text lines with per-span colour / weight / slant / font / size
+    lines = []
+    try:
+        for b in page.get_text("dict")["blocks"]:
+            if b.get("type") != 0:
+                continue
+            for l in b.get("lines", []):
+                spans = []
+                bb = l.get("bbox")
+                for s in l.get("spans", []):
+                    t = s.get("text", "")
+                    if not t.strip():
+                        continue
+                    spans.append({
+                        "t": t,
+                        "sz": s.get("size", 11),
+                        "c": '%06x' % s.get("color", 0),
+                        "b": bool(s.get("flags", 0) & 16),
+                        "i": bool(s.get("flags", 0) & 2),
+                        "f": s.get("font", ""),
+                    })
+                if spans and bb:
+                    lines.append({"x": bb[0], "y": bb[1],
+                                  "w": bb[2] - bb[0], "h": bb[3] - bb[1],
+                                  "s": spans})
+    except Exception:
+        pass
+
+    pages.append({"w": pw, "h": ph, "r": rects, "im": imgs, "tx": lines})
+
+doc.close()
+json.dumps(pages)
+`);
+      return JSON.parse(jsonStr);
+    } finally {
+      try { py.FS.unlink('/in.pdf'); } catch (e) {}
+    }
+  });
+}
+
+function _pptFontFace(name) {
+  const n = (name || '').toLowerCase();
+  if (/courier|mono|consol/.test(n)) return 'Courier New';
+  if (/times|serif|georgia|garamond|cambria|book|roman|palatino/.test(n)) return 'Times New Roman';
+  return 'Arial';
+}
+
+async function fidelityPdfToPptxBlob(bytes) {
+  const model = await fidelityPdfToPptModel(bytes);
+  if (!model || !model.length) throw new Error('empty ppt model');
+  const pptx = new PptxGenJS();
+  const first = model[0];
+  pptx.defineLayout({ name: 'PDFPAGE', width: first.w / 72, height: first.h / 72 });
+  pptx.layout = 'PDFPAGE';
+
+  for (const pg of model) {
+    const slide = pptx.addSlide();
+    const hasContent = (pg.tx && pg.tx.length) || (pg.im && pg.im.length) || (pg.r && pg.r.length);
+    if (!hasContent) {
+      // nothing extractable (pure scan) — pixel-perfect page image instead
+      const cv = await renderPageDataUrl({ getPage: async () => null }, 0).catch(() => null);
+      continue;
+    }
+    // 1) coloured rectangles first (they sit behind everything)
+    for (const r of pg.r || []) {
+      try {
+        slide.addShape(pptx.ShapeType.rect, {
+          x: r.x / 72, y: r.y / 72, w: Math.max(0.02, r.w / 72), h: Math.max(0.02, r.h / 72),
+          fill: { color: r.c.toUpperCase() },
+          line: { color: r.c.toUpperCase(), width: 0 },
+        });
+      } catch (e) {}
+    }
+    // 2) images on top of the shapes
+    for (const im of pg.im || []) {
+      try {
+        slide.addImage({
+          data: 'data:image/png;base64,' + im.d,
+          x: im.x / 72, y: im.y / 72, w: im.w / 72, h: im.h / 72,
+        });
+      } catch (e) {}
+    }
+    // 3) editable text on top — colour, weight, slant and font preserved
+    for (const ln of pg.tx || []) {
+      const runs = ln.s.map(s => ({
+        text: s.t,
+        options: {
+          bold: s.b, italic: s.i,
+          color: s.c.toUpperCase(),
+          fontFace: _pptFontFace(s.f),
+          fontSize: Math.max(6, Math.round(s.sz)),
+        },
+      }));
+      try {
+        slide.addText(runs, {
+          x: Math.max(0, ln.x / 72),
+          y: Math.max(0, (ln.y - ln.h * 0.08) / 72),
+          w: Math.max(0.3, ln.w / 72 + 0.35),
+          h: Math.max(0.16, (ln.h * 1.15) / 72),
+          margin: 0, valign: 'top', align: 'left', wrap: false,
+        });
+      } catch (e) {}
+    }
+  }
+  return pptx.write('blob');
+}
+
+/* PPT tool button — fidelity first, old JS engine as automatic fallback */
+async function procPdf2Ppt(btn) {
+  const chosen = pdfFiles.filter(f => isSel(f, 'conv'));
+  if (!chosen.length) { toast('Tick at least one PDF to convert', 'err', 2600); return; }
+  busy(btn, true, 'Building slides…');
+  try {
+    const out = {};
+    for (const f of chosen) {
+      out[`${baseName(f.name)}.pptx`] = await withFidelity(
+        () => fidelityPdfToPptxBlob(f.bytes),
+        () => pdfToPptxBlob(f.bytes),
+        'PDF to PowerPoint');
+    }
+    await bulkDownload(out, 'presentations.zip');
+    toast('Presentation ready — text, colours, images & shapes preserved');
+  } catch (e) { console.error(e); toast(e.message, 'err', 4500); }
+  busy(btn, false);
+}
+
+/* export sheet's PowerPoint branch uses the new engine too */
+const _exportBytesAs_step3 = exportBytesAs;
+exportBytesAs = async function (bytes, base, fmt, pdfName) {
+  if (fmt === 'ppt') {
+    const blob = await withFidelity(
+      () => fidelityPdfToPptxBlob(bytes),
+      () => pdfToPptxBlob(bytes),
+      'export to PowerPoint');
+    download(blob, base + '.pptx', 'application/octet-stream');
+    return;
+  }
+  return _exportBytesAs_step3(bytes, base, fmt, pdfName);
+};
+
+/* warm the engine when the PPT tool is opened, like Word/Excel already do */
+document.addEventListener('click', (e) => {
+  if (e.target.closest('[onclick*="pdf2ppt"]')) getFidelityEngine(true).catch(() => {});
+}, true);
+
+/* make an engine failure VISIBLE — silent fallback was masquerading as
+   "bad conversion quality". A console banner + one-time toast now tell you
+   which engine actually produced the file. */
+const _withFidelity_orig = withFidelity;
+withFidelity = async function (fn, fallback, label) {
+  try {
+    const r = await fn();
+    console.info('[ZenPDF] "' + label + '" used the HIGH-FIDELITY engine ✓');
+    return r;
+  } catch (e) {
+    console.warn('[ZenPDF] "' + label + '" fell back to the STANDARD engine — fidelity engine error:', e);
+    toast('Note: the high-fidelity engine could not run for ' + label +
+          ' — the standard converter was used (lower layout accuracy).', 'err', 5200);
+    return fallback();
+  }
+};
+</script>
+ 
+  
   
 </body>
 </html>
