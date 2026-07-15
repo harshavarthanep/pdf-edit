@@ -6551,5 +6551,272 @@ try {
   if (wNote) wNote.innerHTML = 'Headings, bold &amp; italics, lists, tables and images are preserved as real PDF content.';
 } catch (e) {}
 </script>
+<!-- New Code -->
+<style>
+/* dark-mode fix — hover must stay theme-aware, not hardcoded black */
+.primary-btn:hover:not(:disabled){background:var(--ink);opacity:.85}
+</style>
+<script>
+'use strict';
+/* ================================================================
+   FIDELITY ENGINE — pdf2docx in WebAssembly, loaded on demand
+   ================================================================ */
+const PYODIDE_CDN = 'https://cdn.jsdelivr.net/pyodide/v0.28.3/full/';
+
+let _fidelityPromise = null;
+let _fidelityReady = false;
+
+function loadScriptOnce(src) {
+  return new Promise((res, rej) => {
+    if (document.querySelector(`script[src="${src}"]`)) return res();
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = res;
+    s.onerror = () => rej(new Error('Could not load ' + src));
+    document.head.appendChild(s);
+  });
+}
+
+/* boot Pyodide + the conversion stack exactly once, lazily */
+function getFidelityEngine(silent) {
+  if (_fidelityPromise) return _fidelityPromise;
+  _fidelityPromise = (async () => {
+    if (!silent) toast('Preparing the high-fidelity engine — first time only (~45 MB, cached after)…', 'ok', 7000);
+    await loadScriptOnce(PYODIDE_CDN + 'pyodide.js');
+    const py = await loadPyodide({ indexURL: PYODIDE_CDN });
+    // binary packages come from the Pyodide CDN; pure ones from PyPI
+    await py.loadPackage(['micropip', 'numpy', 'opencv-python', 'lxml', 'PyMuPDF', 'fonttools']);
+    await py.runPythonAsync(`
+import micropip, sys, types
+sys.modules['fire'] = types.ModuleType('fire')   # CLI-only dep of pdf2docx
+await micropip.install(["python-docx", "openpyxl"])
+await micropip.install("pdf2docx", deps=False)
+from pdf2docx import Converter   # fail fast here if anything is off
+`);
+    _fidelityReady = true;
+    if (!silent) toast('High-fidelity engine ready', 'ok', 2200);
+    return py;
+  })();
+  _fidelityPromise.catch(() => { _fidelityPromise = null; });   // allow retry
+  return _fidelityPromise;
+}
+
+/* serialize conversions — one Python VM, one job at a time */
+let _fidelityQueue = Promise.resolve();
+function fidelityJob(fn) {
+  if (!_fidelityReady) {
+    toast('Finishing the one-time engine download — your conversion starts automatically…', 'ok', 5200);
+  }
+  const run = _fidelityQueue.then(fn);
+  _fidelityQueue = run.catch(() => {});
+  return run;
+}
+
+/* PDF bytes -> real .docx blob (exact layout: text, tables, images) */
+function fidelityPdfToDocx(bytes) {
+  return fidelityJob(async () => {
+    const py = await getFidelityEngine();
+    py.FS.writeFile('/in.pdf', new Uint8Array(bytes));
+    try {
+      await py.runPythonAsync(`
+from pdf2docx import Converter
+cv = Converter('/in.pdf')
+try:
+    cv.convert('/out.docx')
+finally:
+    cv.close()
+`);
+      const out = py.FS.readFile('/out.docx');
+      return new Blob([out],
+        { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    } finally {
+      for (const f of ['/in.pdf', '/out.docx']) { try { py.FS.unlink(f); } catch (e) {} }
+    }
+  });
+}
+
+/* PDF bytes -> .xlsx blob (real detected tables, text fallback) */
+function fidelityPdfToXlsx(bytes) {
+  return fidelityJob(async () => {
+    const py = await getFidelityEngine();
+    py.FS.writeFile('/in.pdf', new Uint8Array(bytes));
+    try {
+      await py.runPythonAsync(`
+from pdf2docx import Converter
+import fitz
+from openpyxl import Workbook
+wb = Workbook(); ws = wb.active; ws.title = "Extracted"
+wrote = False
+try:
+    cv = Converter('/in.pdf')
+    try:
+        tables = cv.extract_tables()
+    finally:
+        cv.close()
+except Exception:
+    tables = []
+for tb in tables or []:
+    for row in tb:
+        ws.append(["" if c is None else c for c in row]); wrote = True
+    ws.append([])
+if not wrote:
+    doc = fitz.open('/in.pdf')
+    for page in doc:
+        for line in page.get_text("text").splitlines():
+            ws.append([line])
+        ws.append([])
+    doc.close()
+wb.save('/out.xlsx')
+`);
+      const out = py.FS.readFile('/out.xlsx');
+      return new Blob([out],
+        { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    } finally {
+      for (const f of ['/in.pdf', '/out.xlsx']) { try { py.FS.unlink(f); } catch (e) {} }
+    }
+  });
+}
+
+/* try the fidelity engine; if anything fails, use the patch #1 engine */
+async function withFidelity(fn, fallback, label) {
+  try {
+    return await fn();
+  } catch (e) {
+    console.warn('[ZenPDF] fidelity engine failed for ' + label + ' — using standard engine:', e);
+    toast('High-fidelity engine unavailable — used the standard converter instead', 'err', 3600);
+    return fallback();
+  }
+}
+
+/* download the engine silently in the background as soon as the page
+   has loaded, so the first conversion is instant. Visitors on
+   data-saver or 2G connections are spared the 45 MB — for them it
+   loads on demand instead. */
+function preloadFidelityEngine() {
+  try {
+    const c = navigator.connection;
+    if (c && (c.saveData || /(^|-)2g/.test(c.effectiveType || ''))) {
+      console.info('[ZenPDF] data-saver / slow connection — engine will load on demand');
+      return;
+    }
+  } catch (e) {}
+  getFidelityEngine(true).catch(() => {});
+}
+if (document.readyState === 'complete') {
+  setTimeout(preloadFidelityEngine, 1500);
+} else {
+  window.addEventListener('load', () => setTimeout(preloadFidelityEngine, 1500));
+}
+/* backup trigger: opening a conversion tool also warms the engine */
+document.addEventListener('click', (e) => {
+  const card = e.target.closest('[onclick*="pdf2word"], [onclick*="pdf2excel"]');
+  if (card) getFidelityEngine(true).catch(() => {});
+}, true);
+
+/* ================================================================
+   OVERRIDES — same functions, fidelity-first with automatic fallback
+   ================================================================ */
+
+async function procPdf2Word(btn) {
+  const chosen = pdfFiles.filter(f => isSel(f, 'conv'));
+  if (!chosen.length) { toast('Tick at least one PDF to convert', 'err', 2600); return; }
+  busy(btn, true, 'Converting…');
+  try {
+    const out = {};
+    for (const f of chosen) {
+      out[`${baseName(f.name)}.docx`] = await withFidelity(
+        () => fidelityPdfToDocx(f.bytes),
+        () => pdfToDocxBlob(f.bytes),
+        'PDF to Word');
+    }
+    await bulkDownload(out, 'pdf_to_word.zip');
+    toast('Word document ready — full layout preserved');
+  } catch (e) { console.error(e); toast(e.message, 'err', 4500); }
+  busy(btn, false);
+}
+
+async function procPdf2Excel(btn) {
+  const chosen = pdfFiles.filter(f => isSel(f, 'conv'));
+  if (!chosen.length) { toast('Tick at least one PDF to convert', 'err', 2600); return; }
+  busy(btn, true, 'Extracting…');
+  try {
+    const out = {};
+    for (const f of chosen) {
+      out[`${baseName(f.name)}.xlsx`] = await withFidelity(
+        () => fidelityPdfToXlsx(f.bytes),
+        async () => {
+          const rows = await extractRowsFromPdf(f.bytes);
+          const ws = XLSX.utils.aoa_to_sheet(rows);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, 'Extracted');
+          return new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })],
+            { type: 'application/octet-stream' });
+        },
+        'PDF to Excel');
+    }
+    await bulkDownload(out, 'extracted_data.zip');
+    toast('Spreadsheet ready');
+  } catch (e) { console.error(e); toast(e.message, 'err', 4500); }
+  busy(btn, false);
+}
+
+/* universal export sheet — Word & Excel branches now use the engine too */
+async function exportBytesAs(bytes, base, fmt, pdfName) {
+  if (fmt === 'pdf') {
+    download(bytes, pdfName || base + '.pdf', 'application/pdf');
+    return;
+  }
+  if (fmt === 'word') {
+    const blob = await withFidelity(
+      () => fidelityPdfToDocx(bytes),
+      () => pdfToDocxBlob(bytes),
+      'export to Word');
+    download(blob, base + '.docx',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    return;
+  }
+  if (fmt === 'ppt') {
+    download(await pdfToPptxBlob(bytes), base + '.pptx', 'application/octet-stream');
+    return;
+  }
+  if (fmt === 'excel') {
+    const blob = await withFidelity(
+      () => fidelityPdfToXlsx(bytes),
+      async () => {
+        const rows = await extractRowsFromPdf(bytes);
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Extracted');
+        return new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })],
+          { type: 'application/octet-stream' });
+      },
+      'export to Excel');
+    download(blob, base + '.xlsx', 'application/octet-stream');
+    return;
+  }
+  if (fmt === 'txt') {
+    const rows = await extractRowsFromPdf(bytes);
+    download(new Blob([rows.map(r => r.join(' ')).join('\n')], { type: 'text/plain' }),
+      base + '.txt', 'text/plain');
+    return;
+  }
+  if (fmt === 'jpg' || fmt === 'png') {
+    const canvases = await renderPagesToCanvases(bytes, 2);
+    const mime = fmt === 'jpg' ? 'image/jpeg' : 'image/png';
+    if (canvases.length === 1) {
+      const blob = await new Promise(res => canvases[0].toBlob(res, mime, 0.92));
+      download(blob, `${base}.${fmt}`, mime);
+      return;
+    }
+    const zip = new JSZip();
+    canvases.forEach((cv, i) =>
+      zip.file(`${base}_page_${i + 1}.${fmt}`, cv.toDataURL(mime, 0.92).split(',')[1], { base64: true }));
+    download(await zip.generateAsync({ type: 'blob' }), `${base}_${fmt}.zip`, 'application/zip');
+    return;
+  }
+}
+</script>
+
+  
 </body>
 </html>
