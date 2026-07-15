@@ -19,6 +19,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <script src="https://cdn.jsdelivr.net/gh/gitbrent/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+<script src="https://unpkg.com/docx@8.5.0/build/index.umd.js"></script>
+
 
 <style>
 /* ============ DESIGN TOKENS — monochrome, Apple-inspired ============ */
@@ -6048,6 +6050,506 @@ document.querySelectorAll('.editor-bar .bar-row').forEach(bindBarDragScroll);
 /* native tooltips for every toolbar button — steady, no hover jitter */
 document.querySelectorAll('[data-tip]').forEach(b => { b.title = b.dataset.tip; });
 
+</script>
+<!-- ═══════════ STEP 2 · paste right before </body> ═══════════ -->
+<script>
+'use strict';
+/* ================================================================
+   TRUE TEXT CONVERSION ENGINE — real, editable output
+   ================================================================
+   Extracts every text run from the PDF with its position, size,
+   font family and bold/italic flags (via pdf.js), then rebuilds
+   native .docx / .pptx files instead of embedding page screenshots.
+   ================================================================ */
+
+/* read the whole PDF into a structured model:
+   pages → lines (sorted top-to-bottom) → styled runs (left-to-right) */
+async function extractTextModel(bytes) {
+  const pdf = await pdfjsLoad(bytes);
+  const pages = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    // force pdf.js to load every font object so the REAL font names
+    // (e.g. "Arial-BoldMT") are readable — not internal ids like g_d0_f3
+    try { await page.getOperatorList(); } catch (e) {}
+    const tc = await page.getTextContent();
+    const v1 = page.getViewport({ scale: 1 });
+    const lines = [];
+    for (const it of tc.items) {
+      if (!it.str || !it.str.trim()) continue;
+      const x = it.transform[4], y = it.transform[5];
+      const size = Math.hypot(it.transform[2], it.transform[3]) || 11;
+      let fname = it.fontName || '';
+      try {
+        if (page.commonObjs.has(it.fontName)) {
+          const fo = page.commonObjs.get(it.fontName);
+          if (fo && fo.name) fname = fo.name;
+        }
+      } catch (e) {}
+      const bold = /bold|black|heavy|semib|demib|extrab|[-_ ]([79]00|800)/i.test(fname);
+      const italic = /italic|oblique/i.test(fname);
+      const font = /courier|mono|consol|menlo|typewriter/i.test(fname) ? 'Courier New'
+        : /times|serif|georgia|garamond|book|roman|cambria|palatino|minion|charter/i.test(fname) ? 'Times New Roman'
+        : 'Arial';
+      // group items that share a baseline into one line
+      let line = null;
+      for (const l of lines) {
+        if (Math.abs(l.y - y) < Math.max(2.2, size * 0.45)) { line = l; break; }
+      }
+      if (!line) { line = { y, size, runs: [] }; lines.push(line); }
+      if (size > line.size) line.size = size;
+      line.runs.push({ x, endX: x + (it.width || 0), str: it.str, size, bold, italic, font });
+    }
+    lines.sort((a, b) => b.y - a.y);            // top of the page first
+    for (const l of lines) {
+      l.runs.sort((a, b) => a.x - b.x);         // left to right
+      l.x = l.runs[0].x;
+      l.endX = l.runs[l.runs.length - 1].endX;
+    }
+    pages.push({ n: i, w: v1.width, h: v1.height, lines });
+  }
+  return { pdf, pages };
+}
+
+/* merge a line's raw items into clean styled runs, restoring the
+   spaces pdf.js drops between separately-positioned items */
+function modelLineRuns(line) {
+  const out = [];
+  let prev = null;
+  for (const r of line.runs) {
+    let text = r.str;
+    if (prev) {
+      const gap = r.x - prev.endX;
+      if (gap > Math.max(1.5, r.size * 0.18) &&
+          !prev.str.endsWith(' ') && !text.startsWith(' ')) {
+        text = (gap > r.size * 1.6 ? '    ' : ' ') + text;   // wide gap ≈ column spacing
+      }
+    }
+    const last = out[out.length - 1];
+    if (last && last.bold === r.bold && last.italic === r.italic &&
+        last.font === r.font && Math.abs(last.size - r.size) < 0.6) {
+      last.text += text;                        // same style — one run
+    } else {
+      out.push({ text, bold: r.bold, italic: r.italic, font: r.font, size: r.size });
+    }
+    prev = r;
+  }
+  return out;
+}
+
+/* render one page to a JPEG data-url — the fallback for scanned pages */
+async function renderPageDataUrl(pdf, n, scale = 1.5) {
+  const page = await pdf.getPage(n);
+  const vp = page.getViewport({ scale });
+  const cv = document.createElement('canvas');
+  cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+  const cx = cv.getContext('2d');
+  cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, cv.width, cv.height);
+  await page.render({ canvasContext: cx, viewport: vp }).promise;
+  return cv;
+}
+
+/* ---------- PDF → real, editable .docx ---------- */
+async function pdfToDocxBlob(bytes) {
+  const { Document, Packer, Paragraph, TextRun, PageBreak, ImageRun, AlignmentType } = docx;
+  const model = await extractTextModel(bytes);
+  const children = [];
+  const MARGIN_PT = 36;                          // matches the 0.5in section margin below
+
+  for (let pi = 0; pi < model.pages.length; pi++) {
+    const pg = model.pages[pi];
+    if (pi > 0) children.push(new Paragraph({ children: [new PageBreak()] }));
+
+    if (!pg.lines.length) {
+      // scanned / image-only page — embed the rendered page so nothing is lost
+      const cv = await renderPageDataUrl(model.pdf, pg.n, 1.5);
+      const b64 = cv.toDataURL('image/jpeg', 0.85).split(',')[1];
+      const data = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+      const w = 600, h = Math.round(w * cv.height / cv.width);
+      children.push(new Paragraph({
+        children: [new ImageRun({ data, transformation: { width: w, height: h } })],
+      }));
+      continue;
+    }
+
+    let prev = null;
+    for (const line of pg.lines) {
+      // a big vertical gap in the PDF becomes a blank paragraph in Word
+      if (prev && (prev.y - line.y) > Math.max(prev.size, line.size) * 2.1) {
+        children.push(new Paragraph({}));
+      }
+      const runs = modelLineRuns(line).map(r => new TextRun({
+        text: r.text,
+        bold: r.bold,
+        italics: r.italic,
+        font: r.font,
+        size: Math.max(2, Math.round(r.size * 2)),   // docx sizes are half-points
+      }));
+      // rough alignment: centred / right-aligned lines are detected from margins
+      const leftGap = line.x, rightGap = pg.w - line.endX;
+      let alignment;
+      if (leftGap > pg.w * 0.15 && Math.abs(leftGap - rightGap) < pg.w * 0.06) {
+        alignment = AlignmentType.CENTER;
+      } else if (leftGap > pg.w * 0.45 && leftGap > rightGap * 2) {
+        alignment = AlignmentType.RIGHT;
+      }
+      const indentPt = Math.max(0, line.x - MARGIN_PT);
+      children.push(new Paragraph({
+        children: runs,
+        alignment,
+        indent: (!alignment && indentPt > 6) ? { left: Math.round(indentPt * 20) } : undefined,
+      }));
+      prev = line;
+    }
+  }
+
+  const first = model.pages[0] || { w: 612, h: 792 };
+  const doc = new Document({
+    sections: [{
+      properties: {
+        page: {
+          size: { width: Math.round(first.w * 20), height: Math.round(first.h * 20) },
+          margin: { top: 720, bottom: 720, left: 720, right: 720 },   // 0.5in
+        },
+      },
+      children,
+    }],
+  });
+  return Packer.toBlob(doc);
+}
+
+/* ---------- PDF → .pptx with real, editable text boxes ---------- */
+async function pdfToPptxBlob(bytes) {
+  const model = await extractTextModel(bytes);
+  const pptx = new PptxGenJS();
+  const first = model.pages[0] || { w: 612, h: 792 };
+  pptx.defineLayout({ name: 'PDFPAGE', width: first.w / 72, height: first.h / 72 });
+  pptx.layout = 'PDFPAGE';
+
+  for (const pg of model.pages) {
+    const slide = pptx.addSlide();
+    if (!pg.lines.length) {
+      // scanned page — keep the picture so the slide isn't empty
+      const cv = await renderPageDataUrl(model.pdf, pg.n, 1.5);
+      slide.addImage({
+        data: cv.toDataURL('image/png'),
+        x: 0, y: 0, w: '100%', h: '100%',
+        sizing: { type: 'contain', w: '100%', h: '100%' },
+      });
+      continue;
+    }
+    for (const line of pg.lines) {
+      const runs = modelLineRuns(line).map(r => ({
+        text: r.text,
+        options: {
+          bold: r.bold, italic: r.italic,
+          fontFace: r.font,
+          fontSize: Math.max(6, Math.round(r.size)),
+        },
+      }));
+      slide.addText(runs, {
+        x: Math.max(0, line.x / 72),
+        y: Math.max(0, (pg.h - line.y - line.size * 0.9) / 72),
+        w: Math.max(0.4, (line.endX - line.x) / 72 + 0.4),
+        h: Math.max(0.18, (line.size * 1.4) / 72),
+        margin: 0, valign: 'top', align: 'left', wrap: false,
+      });
+    }
+  }
+  return pptx.write('blob');
+}
+
+/* ---------- Word (.docx) → PDF with real formatting ----------
+   mammoth converts the .docx to clean HTML (headings, bold/italic,
+   lists, tables, inline base64 images) — this typesets that HTML
+   into a PDF as REAL text, not a screenshot. */
+async function htmlToPdfBlob(html) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const M = 56, pageBottom = 841.89 - M, contentW = 595.28 - M * 2;
+  let y = M;
+  const ensure = (need) => { if (y + need > pageBottom) { doc.addPage(); y = M; } };
+
+  const holder = document.createElement('div');
+  holder.innerHTML = html;
+
+  const loadImg = (src) => new Promise((res) => {
+    const im = new Image();
+    im.onload = () => res(im);
+    im.onerror = () => res(null);
+    im.src = src;
+  });
+
+  const drawImage = async (src) => {
+    if (!src) return;
+    const im = await loadImg(src);
+    if (!im || !im.naturalWidth) return;
+    let w = Math.min(contentW, im.naturalWidth * 0.75);
+    let h = w * im.naturalHeight / im.naturalWidth;
+    if (h > 520) { h = 520; w = h * im.naturalWidth / im.naturalHeight; }
+    ensure(h + 10);
+    try {
+      doc.addImage(src, /^data:image\/png/i.test(src) ? 'PNG' : 'JPEG', M, y, w, h);
+      y += h + 10;
+    } catch (e) { /* unsupported format — skip the image, keep the text */ }
+  };
+
+  // flatten inline content into styled runs
+  const collectRuns = (node, style, runs) => {
+    node.childNodes.forEach(ch => {
+      if (ch.nodeType === 3) {
+        const t = ch.textContent.replace(/\s+/g, ' ');
+        if (t) runs.push({ text: t, ...style });
+      } else if (ch.nodeType === 1) {
+        if (ch.tagName === 'BR') { runs.push({ br: true }); return; }
+        if (ch.tagName === 'IMG') { runs.push({ img: ch.getAttribute('src') }); return; }
+        const s = { ...style };
+        if (ch.tagName === 'B' || ch.tagName === 'STRONG') s.bold = true;
+        if (ch.tagName === 'I' || ch.tagName === 'EM') s.italic = true;
+        if (ch.tagName === 'U') s.underline = true;
+        collectRuns(ch, s, runs);
+      }
+    });
+  };
+
+  // word-wrapping renderer that keeps bold / italic / underline runs intact
+  const drawRuns = async (runs, size, indent, prefix, spaceAfter) => {
+    const lineH = size * 1.45;
+    const left = M + indent;
+    ensure(lineH);
+    let x = left;
+    if (prefix) {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(size);
+      doc.text(prefix, x, y + size * 0.85);
+      x += doc.getTextWidth(prefix);
+    }
+    for (const r of runs) {
+      if (r.br) { y += lineH; ensure(lineH); x = left; continue; }
+      if (r.img) {
+        if (x > left) { y += lineH; x = left; }
+        await drawImage(r.img);
+        ensure(lineH); x = left;
+        continue;
+      }
+      doc.setFont('helvetica',
+        r.bold && r.italic ? 'bolditalic' : r.bold ? 'bold' : r.italic ? 'italic' : 'normal');
+      doc.setFontSize(size);
+      const words = winAnsiSafe(r.text).split(/(\s+)/);
+      for (const w of words) {
+        if (!w) continue;
+        const ww = doc.getTextWidth(w);
+        if (x + ww > M + contentW && x > left) {
+          y += lineH; ensure(lineH); x = left;
+          if (/^\s+$/.test(w)) continue;        // don't start a line with a space
+        }
+        doc.text(w, x, y + size * 0.85);
+        if (r.underline && w.trim()) doc.line(x, y + size * 0.98, x + ww, y + size * 0.98);
+        x += ww;
+      }
+    }
+    y += lineH + spaceAfter;
+  };
+
+  const HEAD_SIZES = { H1: 20, H2: 16, H3: 13.5, H4: 12, H5: 11.5, H6: 11 };
+
+  const renderBlock = async (el, indent = 0, prefix = '') => {
+    const tag = el.tagName;
+    if (tag === 'TABLE') {
+      const head = [], body = [];
+      el.querySelectorAll('tr').forEach(tr => {
+        const cells = Array.from(tr.children).map(td => winAnsiSafe(td.textContent.trim()));
+        if (tr.querySelector('th') && !head.length && !body.length) head.push(cells);
+        else body.push(cells);
+      });
+      if (head.length || body.length) {
+        ensure(48);
+        doc.autoTable({
+          head: head.length ? head : undefined,
+          body,
+          startY: y,
+          margin: { left: M, right: M },
+          styles: { fontSize: 9, textColor: [29, 29, 31] },
+          headStyles: { fillColor: [29, 29, 31] },
+        });
+        y = doc.lastAutoTable.finalY + 14;
+      }
+      return;
+    }
+    if (tag === 'UL' || tag === 'OL') {
+      let n = 1;
+      for (const li of Array.from(el.children)) {
+        await renderBlock(li, indent + 18, tag === 'OL' ? `${n++}.  ` : '\u2022  ');
+      }
+      y += 4;
+      return;
+    }
+    // paragraph that is just an image
+    if (el.children.length === 1 && el.children[0].tagName === 'IMG' && !el.textContent.trim()) {
+      await drawImage(el.children[0].getAttribute('src'));
+      return;
+    }
+    const size = HEAD_SIZES[tag] || 11;
+    const isHeading = !!HEAD_SIZES[tag];
+    const runs = [];
+    collectRuns(el, { bold: isHeading }, runs);
+    if (!runs.length) { y += 6; return; }
+    if (isHeading) ensure(size * 2.2);
+    await drawRuns(runs, size, indent, prefix, isHeading ? 10 : 5);
+  };
+
+  const blocks = holder.children.length ? Array.from(holder.children) : [];
+  if (!blocks.length && holder.textContent.trim()) {
+    const runs = [];
+    collectRuns(holder, {}, runs);
+    await drawRuns(runs, 11, 0, '', 5);
+  }
+  for (const el of blocks) await renderBlock(el);
+  return doc.output('blob');
+}
+
+/* ================================================================
+   OVERRIDES — replace the old image-based converters
+   ================================================================ */
+
+/* universal export — Word & PowerPoint branches now produce real files */
+async function exportBytesAs(bytes, base, fmt, pdfName) {
+  if (fmt === 'pdf') {
+    download(bytes, pdfName || base + '.pdf', 'application/pdf');
+    return;
+  }
+  if (fmt === 'word') {
+    const blob = await pdfToDocxBlob(bytes);
+    download(blob, base + '.docx',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    return;
+  }
+  if (fmt === 'ppt') {
+    download(await pdfToPptxBlob(bytes), base + '.pptx', 'application/octet-stream');
+    return;
+  }
+  if (fmt === 'excel') {
+    const rows = await extractRowsFromPdf(bytes);
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Extracted');
+    download(new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })],
+      { type: 'application/octet-stream' }), base + '.xlsx', 'application/octet-stream');
+    return;
+  }
+  if (fmt === 'txt') {
+    const rows = await extractRowsFromPdf(bytes);
+    download(new Blob([rows.map(r => r.join(' ')).join('\n')], { type: 'text/plain' }),
+      base + '.txt', 'text/plain');
+    return;
+  }
+  if (fmt === 'jpg' || fmt === 'png') {
+    const canvases = await renderPagesToCanvases(bytes, 2);
+    const mime = fmt === 'jpg' ? 'image/jpeg' : 'image/png';
+    if (canvases.length === 1) {
+      const blob = await new Promise(res => canvases[0].toBlob(res, mime, 0.92));
+      download(blob, `${base}.${fmt}`, mime);
+      return;
+    }
+    const zip = new JSZip();
+    canvases.forEach((cv, i) =>
+      zip.file(`${base}_page_${i + 1}.${fmt}`, cv.toDataURL(mime, 0.92).split(',')[1], { base64: true }));
+    download(await zip.generateAsync({ type: 'blob' }), `${base}_${fmt}.zip`, 'application/zip');
+    return;
+  }
+}
+
+/* export sheet — updated wording for the new true conversions */
+async function chooseExport(bytes, base, pdfName) {
+  const fmt = await pickSheet('Download as…',
+    'PDF keeps everything exactly as it looks. Other formats are converted to real, editable files right on your device.', [
+    { label: 'PDF', sub: 'Recommended — exact copy', icon: 'far fa-file-pdf', value: 'pdf' },
+    { label: 'Word (.docx)', sub: 'Real editable text — fonts & styling kept', icon: 'fas fa-file-word', value: 'word' },
+    { label: 'PowerPoint (.pptx)', sub: 'Editable text boxes on every slide', icon: 'fas fa-file-powerpoint', value: 'ppt' },
+    { label: 'Excel (.xlsx)', sub: 'Text extracted line-by-line', icon: 'fas fa-file-excel', value: 'excel' },
+    { label: 'JPG images', sub: 'Every page as a picture', icon: 'far fa-image', value: 'jpg' },
+    { label: 'PNG images', sub: 'Lossless pictures', icon: 'far fa-images', value: 'png' },
+    { label: 'Plain text (.txt)', sub: 'Just the words', icon: 'far fa-file-lines', value: 'txt' },
+  ]);
+  if (!fmt) return false;
+  try {
+    await exportBytesAs(bytes, base, fmt, pdfName);
+    return true;
+  } catch (e) {
+    console.error(e);
+    toast('Export failed: ' + e.message, 'err', 4500);
+    return false;
+  }
+}
+
+/* ---- PDF → Word : real .docx, not page images ---- */
+async function procPdf2Word(btn) {
+  const chosen = pdfFiles.filter(f => isSel(f, 'conv'));
+  if (!chosen.length) { toast('Tick at least one PDF to convert', 'err', 2600); return; }
+  busy(btn, true, 'Converting…');
+  try {
+    const out = {};
+    for (const f of chosen) {
+      out[`${baseName(f.name)}.docx`] = await pdfToDocxBlob(f.bytes);
+    }
+    await bulkDownload(out, 'pdf_to_word.zip');
+    toast('Editable Word document ready — real text, not images');
+  } catch (e) { console.error(e); toast(e.message, 'err', 4500); }
+  busy(btn, false);
+}
+
+/* ---- PDF → PowerPoint : real editable text boxes ---- */
+async function procPdf2Ppt(btn) {
+  const chosen = pdfFiles.filter(f => isSel(f, 'conv'));
+  if (!chosen.length) { toast('Tick at least one PDF to convert', 'err', 2600); return; }
+  busy(btn, true, 'Building slides…');
+  try {
+    const out = {};
+    for (const f of chosen) {
+      out[`${baseName(f.name)}.pptx`] = await pdfToPptxBlob(f.bytes);
+    }
+    await bulkDownload(out, 'presentations.zip');
+    toast('Presentation ready — every slide has real, editable text');
+  } catch (e) { console.error(e); toast(e.message, 'err', 4500); }
+  busy(btn, false);
+}
+
+/* ---- Word → PDF : keeps headings, styling, lists, tables & images ---- */
+async function procWord2Pdf() {
+  const btn = $('btn-word2pdf');
+  busy(btn, true, 'Converting…');
+  try {
+    const out = {};
+    for (const f of aux.word2pdf) {
+      const { value: html } = await mammoth.convertToHtml({ arrayBuffer: await f.arrayBuffer() });
+      out[`${baseName(f.name)}.pdf`] = await htmlToPdfBlob(html);
+    }
+    await bulkDownload(out, 'word_to_pdf.zip');
+    toast('PDF ready — headings, styling, lists, tables & images preserved');
+  } catch (e) { console.error(e); toast(e.message, 'err', 4500); }
+  busy(btn, false);
+}
+
+/* ---- refresh the on-screen wording to match the new behaviour ---- */
+try {
+  TOOL_META.pdf2word.desc = 'Rebuilds the document as a real, editable .docx — actual text with fonts, sizes, bold & italics.';
+  TOOL_META.pdf2ppt.desc = 'Each page becomes a slide with real, editable text boxes.';
+} catch (e) {}
+try {
+  document.querySelectorAll('.action-card p, .gloss-item span').forEach(p => {
+    const t = p.textContent;
+    if (t.includes('Editable .doc with full visual layout')) {
+      p.textContent = 'Real editable .docx — actual text & styling';
+    } else if (t.includes('Export pages into an editable .doc')) {
+      p.textContent = 'Rebuilds the PDF as a real .docx — selectable, editable text with fonts, sizes, bold and italics. Scanned pages are embedded as images.';
+    } else if (t === 'Each page becomes a slide') {
+      p.textContent = 'Slides with real, editable text boxes';
+    } else if (t.includes('Extracts the text of a .docx and typesets it into a PDF.')) {
+      p.textContent = 'Converts a .docx into a clean PDF — headings, bold/italic, lists, tables and images preserved as real content.';
+    }
+  });
+  const wNote = document.querySelector('#view-word2pdf .note');
+  if (wNote) wNote.innerHTML = 'Headings, bold &amp; italics, lists, tables and images are preserved as real PDF content.';
+} catch (e) {}
 </script>
 </body>
 </html>
