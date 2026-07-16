@@ -836,6 +836,95 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
   outline:2px solid var(--accent);outline-offset:2px;
 }
 </style>
+
+<!-- New code   -->
+
+<style>
+/* ────────────────────────────────────────────────────────────────
+   DEFINITIVE LAYOUT UPDATES (Desktop + Mobile Fixes)
+   ──────────────────────────────────────────────────────────────── */
+
+/* FIX 1: Prevent font size input clipping on desktop view */
+#ed-fsize {
+  width: 72px !important;
+  min-width: 72px !important;
+  padding: 6px 4px 6px 8px !important;
+  flex: 0 0 auto !important;
+}
+
+#ed-font {
+  width: 134px !important;
+  min-width: 134px !important;
+  flex: 0 0 auto !important;
+}
+
+.bar-group .bar-select,
+.bar-group .bar-num {
+  background: var(--surface) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 8px !important;
+}
+
+/* FIX 2: Desktop hover adjustment */
+.primary-btn:hover:not(:disabled) {
+  background: var(--ink);
+  opacity: .85;
+}
+
+/* Mobile responsive fixes */
+@media(max-width:640px) {
+  .editor-bar .bar-row > *,
+  .editor-bar .bar-group > * {
+    flex: 0 0 auto !important;
+  }
+
+  /* Force rows to stack cleanly without wrapping inside themselves */
+  .editor-bar {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    max-height: none !important;
+    overflow: hidden !important;
+    gap: 8px !important;
+    padding: 8px 10px !important;
+  }
+
+  /* Force locked horizontal side-scroll channels to eliminate overlays */
+  .editor-bar .bar-row,
+  .editor-bar.show-fmt .bar-row:last-child {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    touch-action: pan-x !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  .editor-bar .bar-group,
+  .editor-bar.show-fmt .bar-row:last-child .bar-group {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    max-width: none !important;
+    gap: 4px !important;
+    row-gap: 0 !important;
+  }
+
+  /* FIX 3: Force Compact mode to hide the format row entirely */
+  .editor-bar.collapsed .bar-row + .bar-row {
+    display: none !important;
+  }
+
+  #ed-font { width: 114px !important; min-width: 114px !important; }
+  #ed-fsize { width: 54px !important; min-width: 54px !important; }
+  .grp-font .tool-btn { min-width: 40px; height: 40px; }
+}
+</style>  
+  
+  
 </head>
 <body>
 
@@ -1198,6 +1287,7 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
       <div class="bar-spacer"></div>
       <span style="font-size:.75rem;color:var(--faint);font-weight:600;margin-right:8px" id="org-count"></span>
       <button class="tool-btn" data-tip="Help — how organizing works" onclick="openHelp('organize')"><i class="far fa-circle-question"></i><span class="tl">Help</span></button>
+      <button class="tool-btn bar-pos-btn" data-tip="Move toolbar top / bottom" onclick="toggleBarPos()"><i class="fas fa-arrows-up-down"></i><span class="tl">Move bar</span></button>
       </div>
     </div>
     <p class="note" style="text-align:left;margin:0 0 14px"><b>Drag pages to reorder</b> — grab the <i class="fas fa-grip-vertical"></i> handle (or press &amp; hold on touch). Click a page to select it for the toolbar. Inserts land right after the selected page.</p>
