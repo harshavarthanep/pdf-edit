@@ -925,6 +925,13 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
   /* .editor-bar.collapsed .bar-row + .bar-row {
     display: none !important;
   } */
+  /* Keeps the container gaps smooth when formatting segments map into display variants */
+.editor-bar {
+  transition: gap 0.15s ease, padding 0.15s ease !important;
+}
+.editor-bar:not(.show-fmt) {
+  gap: 0 !important;
+}
 
   #ed-font { width: 114px !important; min-width: 114px !important; }
   #ed-fsize { width: 54px !important; min-width: 54px !important; }
@@ -3188,6 +3195,91 @@ async function openEditor(preIndex) {
 //   try { localStorage.setItem('zenpdf-barmode', collapsed ? 'compact' : 'full'); } catch (e) {}
 // }
 
+// function setEdTool(t) {
+//   ed.tool = t;
+  
+//   // Highlight the active tool button
+//   document.querySelectorAll('#editor-bar .tool-btn[data-tool]').forEach(b =>
+//     b.classList.toggle('on', b.dataset.tool === t));
+  
+//   // Run formatting row conditional rendering engine
+//   updateToolbarFormatting();
+
+//   edDeselect();
+//   const textmode = t === 'edittext';
+//   ed.pages.forEach(p => {
+//     p.holder.classList.toggle('textmode', textmode);
+//     if (textmode) ensureTextLayer(p);
+//   });
+  
+//   const passive = (t === 'select' || t === 'edittext' || t === 'text' ||
+//                    t === 'image' || t === 'check' || t === 'cross');
+//   document.querySelectorAll('.page-holder canvas.anno').forEach(c => {
+//     c.style.cursor = (t === 'select' || t === 'edittext') ? 'default'
+//       : (t === 'text' || t === 'image' || t === 'check' || t === 'cross') ? 'copy' : 'crosshair';
+//     c.style.touchAction = passive ? 'pan-y pinch-zoom' : 'none';
+//   });
+// }
+
+// /* New Context Helper: Separates Auto-Formatting rules from Normal Display rules */
+// function updateToolbarFormatting() {
+//   const bar = $('editor-bar');
+//   if (!bar) return;
+//   const t = ed.tool;
+//   const rows = bar.querySelectorAll('.bar-row');
+//   if (!rows || rows.length < 2) return;
+  
+//   const fmtRow = rows[1];
+//   const fontGrp = fmtRow.children[0];
+//   const colorGrp = fmtRow.children[1];
+//   const strokeGrp = fmtRow.children[2];
+  
+//   const isCompact = bar.classList.contains('collapsed');
+  
+//   if (isCompact) {
+//     // COMPACT MODE: Contextual auto show/hide mechanics
+//     const useFont = ['text', 'edittext'].includes(t);
+//     const useColor = ['text', 'edittext', 'draw', 'highlight', 'rect', 'ellipse', 'line', 'check', 'cross'].includes(t);
+//     const useStroke = ['draw', 'highlight', 'eraser', 'whiteout', 'rect', 'ellipse', 'line', 'check', 'cross'].includes(t);
+    
+//     if (fontGrp) fontGrp.style.setProperty('display', useFont ? 'flex' : 'none', 'important');
+//     if (colorGrp) colorGrp.style.setProperty('display', useColor ? 'flex' : 'none', 'important');
+//     if (strokeGrp) strokeGrp.style.setProperty('display', useStroke ? 'flex' : 'none', 'important');
+    
+//     const showFmtRow = useFont || useColor || useStroke;
+//     fmtRow.style.setProperty('display', showFmtRow ? 'flex' : 'none', 'important');
+//     bar.classList.toggle('show-fmt', showFmtRow);
+//   } else {
+//     // NORMAL MODE: Restore everything to show all options like before
+//     const isTextTool = ['text', 'edittext'].includes(t);
+//     bar.classList.add('show-fmt');
+    
+//     if (fontGrp) fontGrp.style.setProperty('display', isTextTool ? 'flex' : 'none', 'important');
+//     if (colorGrp) colorGrp.style.setProperty('display', 'flex', 'important');
+//     if (strokeGrp) strokeGrp.style.setProperty('display', 'flex', 'important');
+    
+//     fmtRow.style.setProperty('display', 'flex', 'important');
+//   }
+// }
+
+// function toggleBarCollapse() {
+//   const bar = $('editor-bar');
+//   const collapsed = bar.classList.toggle('collapsed');
+//   const btn = $('bar-collapse-btn');
+//   if (btn) {
+//     btn.querySelector('i').className = collapsed ? 'fas fa-chevron-down' : 'fas fa-chevron-up';
+//     const tl = btn.querySelector('.tl');
+//     if (tl) tl.textContent = collapsed ? 'Expand' : 'Compact';
+//     btn.dataset.tip = collapsed ? 'Expand toolbar — show labels & colours' : 'Compact toolbar — more room for the document';
+//     btn.title = btn.dataset.tip;
+//   }
+  
+//   // Instantly re-evaluate layout constraints on mode shift
+//   updateToolbarFormatting();
+  
+//   try { localStorage.setItem('zenpdf-barmode', collapsed ? 'compact' : 'full'); } catch (e) {}
+// }  
+
 function setEdTool(t) {
   ed.tool = t;
   
@@ -3195,7 +3287,7 @@ function setEdTool(t) {
   document.querySelectorAll('#editor-bar .tool-btn[data-tool]').forEach(b =>
     b.classList.toggle('on', b.dataset.tool === t));
   
-  // Run formatting row conditional rendering engine
+  // Update the formatting row displays instantly
   updateToolbarFormatting();
 
   edDeselect();
@@ -3214,7 +3306,7 @@ function setEdTool(t) {
   });
 }
 
-/* New Context Helper: Separates Auto-Formatting rules from Normal Display rules */
+/* Master Formatting Engine: Normal Dashboard vs Smart Compact Mode */
 function updateToolbarFormatting() {
   const bar = $('editor-bar');
   if (!bar) return;
@@ -3228,12 +3320,20 @@ function updateToolbarFormatting() {
   const strokeGrp = fmtRow.children[2];
   
   const isCompact = bar.classList.contains('collapsed');
+  const activeKind = ed.selected ? ed.selected.dataset.kind : null;
   
   if (isCompact) {
-    // COMPACT MODE: Contextual auto show/hide mechanics
-    const useFont = ['text', 'edittext'].includes(t);
-    const useColor = ['text', 'edittext', 'draw', 'highlight', 'rect', 'ellipse', 'line', 'check', 'cross'].includes(t);
-    const useStroke = ['draw', 'highlight', 'eraser', 'whiteout', 'rect', 'ellipse', 'line', 'check', 'cross'].includes(t);
+    // COMPACT MODE: Dynamic contextual auto show/hide
+    // Show Font group for text, edittext tools, or when any text/date object is selected
+    const useFont = ['text', 'edittext'].includes(t) || activeKind === 'text';
+    
+    // Show Color selector for text tools, vector tools, or active selections
+    const useColor = ['text', 'edittext', 'draw', 'highlight', 'rect', 'ellipse', 'line', 'check', 'cross'].includes(t) || 
+                     activeKind === 'text' || activeKind === 'shape';
+                     
+    // Show Brush Stroke options strictly for drawing/shapes, excluding all text/date variations
+    const useStroke = ['draw', 'highlight', 'eraser', 'whiteout', 'rect', 'ellipse', 'line', 'check', 'cross'].includes(t) || 
+                      activeKind === 'shape';
     
     if (fontGrp) fontGrp.style.setProperty('display', useFont ? 'flex' : 'none', 'important');
     if (colorGrp) colorGrp.style.setProperty('display', useColor ? 'flex' : 'none', 'important');
@@ -3243,14 +3343,11 @@ function updateToolbarFormatting() {
     fmtRow.style.setProperty('display', showFmtRow ? 'flex' : 'none', 'important');
     bar.classList.toggle('show-fmt', showFmtRow);
   } else {
-    // NORMAL MODE: Restore everything to show all options like before
-    const isTextTool = ['text', 'edittext'].includes(t);
+    // NORMAL MODE: Permanent visible dashboard dashboard — never changes hide states
     bar.classList.add('show-fmt');
-    
-    if (fontGrp) fontGrp.style.setProperty('display', isTextTool ? 'flex' : 'none', 'important');
+    if (fontGrp) fontGrp.style.setProperty('display', 'flex', 'important');
     if (colorGrp) colorGrp.style.setProperty('display', 'flex', 'important');
     if (strokeGrp) strokeGrp.style.setProperty('display', 'flex', 'important');
-    
     fmtRow.style.setProperty('display', 'flex', 'important');
   }
 }
@@ -3267,10 +3364,39 @@ function toggleBarCollapse() {
     btn.title = btn.dataset.tip;
   }
   
-  // Instantly re-evaluate layout constraints on mode shift
+  // Re-run visibility adjustments on toggle transition
   updateToolbarFormatting();
   
   try { localStorage.setItem('zenpdf-barmode', collapsed ? 'compact' : 'full'); } catch (e) {}
+}
+
+function edDeselect() {
+  if (ed.selected) ed.selected.classList.remove('selected');
+  ed.selected = null;
+  updateToolbarFormatting();
+}
+
+function edSelect(obj) {
+  edDeselect();
+  ed.selected = obj;
+  obj.classList.add('selected');
+  if (obj.dataset.kind === 'text') {
+    $('editor-bar').classList.add('show-fmt');
+    const t = obj.querySelector('.ov-text');
+    ed.font = obj.dataset.font || 'Helvetica';
+    ed.fontSize = parseFloat(t.style.fontSize) || 20;
+    ed.bold = ['700', 'bold', '600', '800'].includes(t.style.fontWeight);
+    ed.italic = t.style.fontStyle === 'italic';
+    ed.underline = (t.style.textDecoration || '').includes('underline');
+    ed.align = t.style.textAlign || 'left';
+    ed.color = rgbToHex(t.style.color) || ed.color;
+    edSyncBar();
+  } else if (obj.dataset.kind === 'shape') {
+    ed.color = obj.dataset.color || ed.color;
+    ed.stroke = parseFloat(obj.dataset.stroke) || ed.stroke;
+    edSyncBar();
+  }
+  updateToolbarFormatting();
 }  
   
 try {
@@ -3346,32 +3472,32 @@ function edSyncBar() {
     d.classList.toggle('on', d.dataset.c.toLowerCase() === ed.color.toLowerCase()));
 }
 
-function edDeselect() {
-  if (ed.selected) ed.selected.classList.remove('selected');
-  ed.selected = null;
-}
+// function edDeselect() {
+//   if (ed.selected) ed.selected.classList.remove('selected');
+//   ed.selected = null;
+// }
 
-function edSelect(obj) {
-  edDeselect();
-  ed.selected = obj;
-  obj.classList.add('selected');
-  if (obj.dataset.kind === 'text') {
-    $('editor-bar').classList.add('show-fmt');
-    const t = obj.querySelector('.ov-text');
-    ed.font = obj.dataset.font || 'Helvetica';
-    ed.fontSize = parseFloat(t.style.fontSize) || 20;
-    ed.bold = ['700', 'bold', '600', '800'].includes(t.style.fontWeight);
-    ed.italic = t.style.fontStyle === 'italic';
-    ed.underline = (t.style.textDecoration || '').includes('underline');
-    ed.align = t.style.textAlign || 'left';
-    ed.color = rgbToHex(t.style.color) || ed.color;
-    edSyncBar();
-  } else if (obj.dataset.kind === 'shape') {
-    ed.color = obj.dataset.color || ed.color;
-    ed.stroke = parseFloat(obj.dataset.stroke) || ed.stroke;
-    edSyncBar();
-  }
-}
+// function edSelect(obj) {
+//   edDeselect();
+//   ed.selected = obj;
+//   obj.classList.add('selected');
+//   if (obj.dataset.kind === 'text') {
+//     $('editor-bar').classList.add('show-fmt');
+//     const t = obj.querySelector('.ov-text');
+//     ed.font = obj.dataset.font || 'Helvetica';
+//     ed.fontSize = parseFloat(t.style.fontSize) || 20;
+//     ed.bold = ['700', 'bold', '600', '800'].includes(t.style.fontWeight);
+//     ed.italic = t.style.fontStyle === 'italic';
+//     ed.underline = (t.style.textDecoration || '').includes('underline');
+//     ed.align = t.style.textAlign || 'left';
+//     ed.color = rgbToHex(t.style.color) || ed.color;
+//     edSyncBar();
+//   } else if (obj.dataset.kind === 'shape') {
+//     ed.color = obj.dataset.color || ed.color;
+//     ed.stroke = parseFloat(obj.dataset.stroke) || ed.stroke;
+//     edSyncBar();
+//   }
+// }
 
 function hexToRgb01(hex) {
   const n = parseInt(hex.slice(1), 16);
