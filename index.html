@@ -922,9 +922,9 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
   }
 
   /* FIX 3: Force Compact mode to hide the format row entirely */
-  .editor-bar.collapsed .bar-row + .bar-row {
+  /* .editor-bar.collapsed .bar-row + .bar-row {
     display: none !important;
-  }
+  } */
 
   #ed-font { width: 114px !important; min-width: 114px !important; }
   #ed-fsize { width: 54px !important; min-width: 54px !important; }
@@ -3127,6 +3127,67 @@ async function openEditor(preIndex) {
 //   });
 // }
 
+// function setEdTool(t) {
+//   ed.tool = t;
+  
+//   // Highlight the active tool button
+//   document.querySelectorAll('#editor-bar .tool-btn[data-tool]').forEach(b =>
+//     b.classList.toggle('on', b.dataset.tool === t));
+  
+//   // Dynamic Contextual Formatting Engine (Desktop + Mobile)
+//   const rows = document.querySelectorAll('#editor-bar .bar-row');
+//   if (rows && rows.length > 1) {
+//     const fmtRow = rows[1]; // The formatting row container
+//     const fontGrp = fmtRow.children[0];
+//     const colorGrp = fmtRow.children[1];
+//     const strokeGrp = fmtRow.children[2];
+
+//     // Determine target dependencies per tool
+//     const useFont = ['text', 'edittext'].includes(t);
+//     const useColor = ['text', 'edittext', 'draw', 'highlight', 'rect', 'ellipse', 'line', 'check', 'cross'].includes(t);
+//     const useStroke = ['draw', 'highlight', 'eraser', 'whiteout', 'rect', 'ellipse', 'line', 'check', 'cross'].includes(t);
+
+//     // Toggle individual modifier groups
+//     if (fontGrp) fontGrp.style.setProperty('display', useFont ? 'flex' : 'none', 'important');
+//     if (colorGrp) colorGrp.style.setProperty('display', useColor ? 'flex' : 'none', 'important');
+//     if (strokeGrp) strokeGrp.style.setProperty('display', useStroke ? 'flex' : 'none', 'important');
+
+//     // Automatically toggle the entire formatting channel
+//     const showFmtRow = useFont || useColor || useStroke;
+//     fmtRow.style.setProperty('display', showFmtRow ? 'flex' : 'none', 'important');
+//     $('editor-bar').classList.toggle('show-fmt', showFmtRow);
+//   }
+
+//   edDeselect();
+//   const textmode = t === 'edittext';
+//   ed.pages.forEach(p => {
+//     p.holder.classList.toggle('textmode', textmode);
+//     if (textmode) ensureTextLayer(p);
+//   });
+  
+//   const passive = (t === 'select' || t === 'edittext' || t === 'text' ||
+//                    t === 'image' || t === 'check' || t === 'cross');
+//   document.querySelectorAll('.page-holder canvas.anno').forEach(c => {
+//     c.style.cursor = (t === 'select' || t === 'edittext') ? 'default'
+//       : (t === 'text' || t === 'image' || t === 'check' || t === 'cross') ? 'copy' : 'crosshair';
+//     c.style.touchAction = passive ? 'pan-y pinch-zoom' : 'none';
+//   });
+// } 
+
+// function toggleBarCollapse() {
+//   const bar = $('editor-bar');
+//   const collapsed = bar.classList.toggle('collapsed');
+//   const btn = $('bar-collapse-btn');
+//   if (btn) {
+//     btn.querySelector('i').className = collapsed ? 'fas fa-chevron-down' : 'fas fa-chevron-up';
+//     const tl = btn.querySelector('.tl');
+//     if (tl) tl.textContent = collapsed ? 'Expand' : 'Compact';
+//     btn.dataset.tip = collapsed ? 'Expand toolbar — show labels & colours' : 'Compact toolbar — more room for the document';
+//     btn.title = btn.dataset.tip;
+//   }
+//   try { localStorage.setItem('zenpdf-barmode', collapsed ? 'compact' : 'full'); } catch (e) {}
+// }
+
 function setEdTool(t) {
   ed.tool = t;
   
@@ -3134,29 +3195,8 @@ function setEdTool(t) {
   document.querySelectorAll('#editor-bar .tool-btn[data-tool]').forEach(b =>
     b.classList.toggle('on', b.dataset.tool === t));
   
-  // Dynamic Contextual Formatting Engine (Desktop + Mobile)
-  const rows = document.querySelectorAll('#editor-bar .bar-row');
-  if (rows && rows.length > 1) {
-    const fmtRow = rows[1]; // The formatting row container
-    const fontGrp = fmtRow.children[0];
-    const colorGrp = fmtRow.children[1];
-    const strokeGrp = fmtRow.children[2];
-
-    // Determine target dependencies per tool
-    const useFont = ['text', 'edittext'].includes(t);
-    const useColor = ['text', 'edittext', 'draw', 'highlight', 'rect', 'ellipse', 'line', 'check', 'cross'].includes(t);
-    const useStroke = ['draw', 'highlight', 'eraser', 'whiteout', 'rect', 'ellipse', 'line', 'check', 'cross'].includes(t);
-
-    // Toggle individual modifier groups
-    if (fontGrp) fontGrp.style.setProperty('display', useFont ? 'flex' : 'none', 'important');
-    if (colorGrp) colorGrp.style.setProperty('display', useColor ? 'flex' : 'none', 'important');
-    if (strokeGrp) strokeGrp.style.setProperty('display', useStroke ? 'flex' : 'none', 'important');
-
-    // Automatically toggle the entire formatting channel
-    const showFmtRow = useFont || useColor || useStroke;
-    fmtRow.style.setProperty('display', showFmtRow ? 'flex' : 'none', 'important');
-    $('editor-bar').classList.toggle('show-fmt', showFmtRow);
-  }
+  // Run formatting row conditional rendering engine
+  updateToolbarFormatting();
 
   edDeselect();
   const textmode = t === 'edittext';
@@ -3172,7 +3212,48 @@ function setEdTool(t) {
       : (t === 'text' || t === 'image' || t === 'check' || t === 'cross') ? 'copy' : 'crosshair';
     c.style.touchAction = passive ? 'pan-y pinch-zoom' : 'none';
   });
-} 
+}
+
+/* New Context Helper: Separates Auto-Formatting rules from Normal Display rules */
+function updateToolbarFormatting() {
+  const bar = $('editor-bar');
+  if (!bar) return;
+  const t = ed.tool;
+  const rows = bar.querySelectorAll('.bar-row');
+  if (!rows || rows.length < 2) return;
+  
+  const fmtRow = rows[1];
+  const fontGrp = fmtRow.children[0];
+  const colorGrp = fmtRow.children[1];
+  const strokeGrp = fmtRow.children[2];
+  
+  const isCompact = bar.classList.contains('collapsed');
+  
+  if (isCompact) {
+    // COMPACT MODE: Contextual auto show/hide mechanics
+    const useFont = ['text', 'edittext'].includes(t);
+    const useColor = ['text', 'edittext', 'draw', 'highlight', 'rect', 'ellipse', 'line', 'check', 'cross'].includes(t);
+    const useStroke = ['draw', 'highlight', 'eraser', 'whiteout', 'rect', 'ellipse', 'line', 'check', 'cross'].includes(t);
+    
+    if (fontGrp) fontGrp.style.setProperty('display', useFont ? 'flex' : 'none', 'important');
+    if (colorGrp) colorGrp.style.setProperty('display', useColor ? 'flex' : 'none', 'important');
+    if (strokeGrp) strokeGrp.style.setProperty('display', useStroke ? 'flex' : 'none', 'important');
+    
+    const showFmtRow = useFont || useColor || useStroke;
+    fmtRow.style.setProperty('display', showFmtRow ? 'flex' : 'none', 'important');
+    bar.classList.toggle('show-fmt', showFmtRow);
+  } else {
+    // NORMAL MODE: Restore everything to show all options like before
+    const isTextTool = ['text', 'edittext'].includes(t);
+    bar.classList.add('show-fmt');
+    
+    if (fontGrp) fontGrp.style.setProperty('display', isTextTool ? 'flex' : 'none', 'important');
+    if (colorGrp) colorGrp.style.setProperty('display', 'flex', 'important');
+    if (strokeGrp) strokeGrp.style.setProperty('display', 'flex', 'important');
+    
+    fmtRow.style.setProperty('display', 'flex', 'important');
+  }
+}
 
 function toggleBarCollapse() {
   const bar = $('editor-bar');
@@ -3185,8 +3266,13 @@ function toggleBarCollapse() {
     btn.dataset.tip = collapsed ? 'Expand toolbar — show labels & colours' : 'Compact toolbar — more room for the document';
     btn.title = btn.dataset.tip;
   }
+  
+  // Instantly re-evaluate layout constraints on mode shift
+  updateToolbarFormatting();
+  
   try { localStorage.setItem('zenpdf-barmode', collapsed ? 'compact' : 'full'); } catch (e) {}
-}
+}  
+  
 try {
   if (localStorage.getItem('zenpdf-barmode') === 'compact') {
     document.addEventListener('DOMContentLoaded', () => {
