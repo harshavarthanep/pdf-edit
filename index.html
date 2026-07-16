@@ -381,8 +381,16 @@ input[type=range]{width:100%;accent-color:var(--ink)}
 }
 .bar-group .tool-btn{width:auto;min-width:40px;height:40px;border-radius:9px}
 .bar-group .bar-select,.bar-group .bar-num{border:none;background:transparent}
-.grp-font{display:none}
-.editor-bar.show-fmt .grp-font{display:flex}
+/* .grp-font{display:none}
+.editor-bar.show-fmt .grp-font{display:flex} */
+/* Enforce smooth vertical flow when formatting rows toggle */
+.editor-bar .bar-row {
+  transition: max-height 0.2s ease, padding 0.2s ease;
+}
+.editor-bar:not(.show-fmt) {
+  gap: 0 !important;
+}
+
 /* compact mode — labels hidden, format row collapsed: maximum document space */
 .editor-bar.collapsed .tl{display:none}
 .editor-bar.collapsed .bar-group .tool-btn{height:34px;min-width:36px}
@@ -3099,17 +3107,64 @@ async function openEditor(preIndex) {
   }
 }
 
+// function setEdTool(t) {
+//   ed.tool = t;
+//   document.querySelectorAll('#editor-bar .tool-btn[data-tool]').forEach(b =>
+//     b.classList.toggle('on', b.dataset.tool === t));
+//   $('editor-bar').classList.toggle('show-fmt', t === 'text' || t === 'edittext');
+//   edDeselect();
+//   const textmode = t === 'edittext';
+//   ed.pages.forEach(p => {
+//     p.holder.classList.toggle('textmode', textmode);
+//     if (textmode) ensureTextLayer(p);
+//   });
+//   const passive = (t === 'select' || t === 'edittext' || t === 'text' ||
+//                    t === 'image' || t === 'check' || t === 'cross');
+//   document.querySelectorAll('.page-holder canvas.anno').forEach(c => {
+//     c.style.cursor = (t === 'select' || t === 'edittext') ? 'default'
+//       : (t === 'text' || t === 'image' || t === 'check' || t === 'cross') ? 'copy' : 'crosshair';
+//     c.style.touchAction = passive ? 'pan-y pinch-zoom' : 'none';
+//   });
+// }
+
 function setEdTool(t) {
   ed.tool = t;
+  
+  // Highlight the active tool button
   document.querySelectorAll('#editor-bar .tool-btn[data-tool]').forEach(b =>
     b.classList.toggle('on', b.dataset.tool === t));
-  $('editor-bar').classList.toggle('show-fmt', t === 'text' || t === 'edittext');
+  
+  // Dynamic Contextual Formatting Engine (Desktop + Mobile)
+  const rows = document.querySelectorAll('#editor-bar .bar-row');
+  if (rows && rows.length > 1) {
+    const fmtRow = rows[1]; // The formatting row container
+    const fontGrp = fmtRow.children[0];
+    const colorGrp = fmtRow.children[1];
+    const strokeGrp = fmtRow.children[2];
+
+    // Determine target dependencies per tool
+    const useFont = ['text', 'edittext'].includes(t);
+    const useColor = ['text', 'edittext', 'draw', 'highlight', 'rect', 'ellipse', 'line', 'check', 'cross'].includes(t);
+    const useStroke = ['draw', 'highlight', 'eraser', 'whiteout', 'rect', 'ellipse', 'line', 'check', 'cross'].includes(t);
+
+    // Toggle individual modifier groups
+    if (fontGrp) fontGrp.style.setProperty('display', useFont ? 'flex' : 'none', 'important');
+    if (colorGrp) colorGrp.style.setProperty('display', useColor ? 'flex' : 'none', 'important');
+    if (strokeGrp) strokeGrp.style.setProperty('display', useStroke ? 'flex' : 'none', 'important');
+
+    // Automatically toggle the entire formatting channel
+    const showFmtRow = useFont || useColor || useStroke;
+    fmtRow.style.setProperty('display', showFmtRow ? 'flex' : 'none', 'important');
+    $('editor-bar').classList.toggle('show-fmt', showFmtRow);
+  }
+
   edDeselect();
   const textmode = t === 'edittext';
   ed.pages.forEach(p => {
     p.holder.classList.toggle('textmode', textmode);
     if (textmode) ensureTextLayer(p);
   });
+  
   const passive = (t === 'select' || t === 'edittext' || t === 'text' ||
                    t === 'image' || t === 'check' || t === 'cross');
   document.querySelectorAll('.page-holder canvas.anno').forEach(c => {
@@ -3117,7 +3172,7 @@ function setEdTool(t) {
       : (t === 'text' || t === 'image' || t === 'check' || t === 'cross') ? 'copy' : 'crosshair';
     c.style.touchAction = passive ? 'pan-y pinch-zoom' : 'none';
   });
-}
+} 
 
 function toggleBarCollapse() {
   const bar = $('editor-bar');
