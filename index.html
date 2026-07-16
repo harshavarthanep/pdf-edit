@@ -6820,45 +6820,66 @@ async function exportBytesAs(bytes, base, fmt, pdfName) {
 <!-- New Code -->
  <style>
 /* ────────────────────────────────────────────────────────────────
-   FIX 1 — mobile editor format row
+   FIX — Mobile Editor Overlap & Scroll Channel Alignment
    ──────────────────────────────────────────────────────────────── */
-/* the font family / size fields inherited "background:transparent;border:none"
-   which rendered as an empty gap on phones — make them visible everywhere */
 .bar-group .bar-select,
-.bar-group .bar-num{
-  background:var(--surface) !important;
-  border:1px solid var(--line) !important;
-  border-radius:8px;
+.bar-group .bar-num {
+  background: var(--surface) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 8px;
 }
-#ed-font{width:128px;min-width:128px;max-width:128px;flex:0 0 auto}
-#ed-fsize{width:58px;min-width:58px;flex:0 0 auto}
+#ed-font { width: 128px; min-width: 128px; max-width: 128px; flex: 0 0 auto; }
+#ed-fsize { width: 58px; min-width: 58px; flex: 0 0 auto; }
 
-@media(max-width:640px){
-  /* every child keeps its own space — nothing can slide under a neighbour */
+@media(max-width:640px) {
+  /* Prevent any item from shrinking or dropping under another element */
   .editor-bar .bar-row > *,
-  .editor-bar .bar-group > *{flex:0 0 auto}
-
-  /* when the format row is visible (Text / Edit-text tools), let it WRAP into
-     tidy lines instead of one long strip — the format buttons can no longer
-     land on top of the colour dots, and everything is reachable without
-     hunting for the scroll position */
-  .editor-bar.show-fmt .bar-row:last-child{
-    flex-wrap:wrap;
-    overflow-x:visible;
-    touch-action:auto !important;
-    row-gap:6px;
+  .editor-bar .bar-group > * { 
+    flex: 0 0 auto !important; 
   }
-  .editor-bar.show-fmt .bar-row:last-child .bar-group{
-    flex-wrap:wrap;
-    max-width:100%;
-    row-gap:3px;
-  }
-  /* the bar itself may grow — cap it and scroll vertically instead of
-     spilling over the document */
-  .editor-bar{max-height:46vh;overflow-y:auto}
 
-  #ed-font{width:118px;min-width:118px}
-  .grp-font .tool-btn{min-width:40px;height:40px}
+  /* Force the editor bar container to stack rows vertically without layout overflow */
+  .editor-bar {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    max-height: none !important;
+    overflow: hidden !important;
+    gap: 8px !important;
+    padding: 8px 10px !important;
+  }
+
+  /* Keep BOTH rows locked into strict horizontal side-scroll tracks.
+     They can never wrap or bleed vertically into each other. */
+  .editor-bar .bar-row,
+  .editor-bar.show-fmt .bar-row:last-child {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    touch-action: pan-x !important; /* Retains touch gestures */
+    overscroll-behavior-x: contain !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  /* Ensure button groups don't wrap internally either */
+  .editor-bar .bar-group,
+  .editor-bar.show-fmt .bar-row:last-child .bar-group {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    max-width: none !important;
+    gap: 4px !important;
+    row-gap: 0 !important;
+  }
+
+  /* Optimize font tool layout dimensions for mobile screen space */
+  #ed-font { width: 114px; min-width: 114px; max-width: 114px; }
+  #ed-fsize { width: 52px; min-width: 52px; max-width: 52px; }
+  .grp-font .tool-btn { min-width: 40px; height: 40px; }
 }
 </style>
 
