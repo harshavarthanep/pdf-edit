@@ -7513,6 +7513,144 @@ withFidelity = async function (fn, fallback, label) {
   }
 };
 </script>
- 
+<!-- New code   -->
+<!-- ═══════════ SAVE AS PATCH · paste right before </body>, AFTER all existing scripts ═══════════ -->
+<script>
+'use strict';
+/* ================================================================
+   SAVE AS — every export option gets a folder icon at the end.
+   · Normal click on the option → downloads exactly as before.
+   · Folder icon → opens the browser "Save As" dialog so the user
+     can choose the folder and the file name.
+   Uses the File System Access API (Chrome / Edge / Opera desktop).
+   On unsupported browsers the icon is hidden and nothing changes.
+   Works for every format — including multi-file ZIP results —
+   because it reroutes the download() calls inside exportBytesAs,
+   so none of the existing converter code is touched.
+   ================================================================ */
+const SAVE_AS_SUPPORTED = typeof window.showSaveFilePicker === 'function';
+
+function _saExt(name) {
+  const m = /\.([a-z0-9]+)$/i.exec(name || '');
+  return m ? '.' + m[1].toLowerCase() : '';
+}
+
+/* write one blob to disk through the native Save As dialog.
+   `fallbackDl` is the ORIGINAL download() — used if the dialog
+   cannot open (unsupported context, expired user activation, …) */
+async function saveAsToDisk(data, name, mime, fallbackDl) {
+  const blob = data instanceof Blob
+    ? data
+    : new Blob([data], { type: mime || 'application/octet-stream' });
+  const ext = _saExt(name);
+  const type = mime || blob.type || 'application/octet-stream';
+  try {
+    const handle = await window.showSaveFilePicker({
+      suggestedName: name,
+      types: ext ? [{
+        description: ext.slice(1).toUpperCase() + ' file',
+        accept: { [type]: [ext] },
+      }] : undefined,
+    });
+    const w = await handle.createWritable();
+    await w.write(blob);
+    await w.close();
+    toast('Saved to the location you chose');
+    return true;
+  } catch (e) {
+    if (e && e.name === 'AbortError') {        // user pressed Cancel in the dialog
+      toast('Save cancelled', 'ok', 1800);
+      return false;
+    }
+    console.warn('[ZenPDF] Save As dialog unavailable — normal download used instead:', e);
+    (fallbackDl || download)(blob, name, type);
+    toast('Save As was not available here — the file was downloaded normally instead', 'err', 4200);
+    return true;
+  }
+}
+
+/* temporarily reroute every download() call inside fn to the Save As dialog */
+async function withSaveAs(fn) {
+  const orig = window.download;
+  const jobs = [];
+  window.download = (data, name, mime) => {
+    jobs.push(saveAsToDisk(data, name, mime, orig));
+    return true;
+  };
+  try {
+    await fn();
+    await Promise.all(jobs);
+  } finally {
+    window.download = orig;
+  }
+}
+
+/* export picker — same look as pickSheet, plus a trailing Save As icon */
+function pickExportSheet(title, sub, options) {
+  return new Promise((resolve) => {
+    const s = sheetOpen(
+      `<h3>${escapeHtml(title)}</h3>` +
+      (sub ? `<p class="sheet-sub">${escapeHtml(sub)}</p>` : '') +
+      `<div id="sheet-opts"></div><button class="sheet-cancel">Cancel</button>`);
+    const done = (v) => { sheetClose(); resolve(v); };
+    const wrap = s.querySelector('#sheet-opts');
+    options.forEach(o => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:8px;align-items:stretch;margin-bottom:9px';
+      const b = document.createElement('button');
+      b.className = 'sheet-opt';
+      b.style.cssText = 'flex:1;margin-bottom:0';
+      b.innerHTML = `<i class="${o.icon || 'far fa-file-pdf'}"></i><span>${escapeHtml(o.label)}` +
+        (o.sub ? `<small>${escapeHtml(o.sub)}</small>` : '') + `</span>`;
+      b.onclick = () => done({ value: o.value, saveAs: false });
+      row.appendChild(b);
+      if (SAVE_AS_SUPPORTED) {
+        const sa = document.createElement('button');
+        sa.className = 'sheet-opt';
+        sa.style.cssText = 'flex:0 0 auto;width:52px;justify-content:center;margin-bottom:0;padding:13px 0';
+        sa.title = 'Save As… — choose the folder & file name';
+        sa.setAttribute('aria-label', `Save ${o.label} As…`);
+        sa.innerHTML = '<i class="fas fa-folder-open" style="width:auto"></i>';
+        sa.onclick = () => done({ value: o.value, saveAs: true });
+        row.appendChild(sa);
+      }
+      wrap.appendChild(row);
+    });
+    s.querySelector('.sheet-cancel').onclick = () => done(null);
+    $('sheet-bd').addEventListener('pointerdown', (e) => { if (e.target.id === 'sheet-bd') done(null); });
+  });
+}
+
+/* chooseExport — identical options & behaviour as before,
+   with the extra Save As icon on every row */
+chooseExport = async function (bytes, base, pdfName) {
+  const pick = await pickExportSheet('Download as…',
+    'PDF keeps everything exactly as it looks. Other formats are converted to real, editable files right on your device.'
+    + (SAVE_AS_SUPPORTED ? ' Tap the folder icon on any format to choose where to save it.' : ''), [
+    { label: 'PDF', sub: 'Recommended — exact copy', icon: 'far fa-file-pdf', value: 'pdf' },
+    { label: 'Word (.docx)', sub: 'Real editable text — fonts & styling kept', icon: 'fas fa-file-word', value: 'word' },
+    { label: 'PowerPoint (.pptx)', sub: 'Editable text boxes on every slide', icon: 'fas fa-file-powerpoint', value: 'ppt' },
+    { label: 'Excel (.xlsx)', sub: 'Text extracted line-by-line', icon: 'fas fa-file-excel', value: 'excel' },
+    { label: 'JPG images', sub: 'Every page as a picture', icon: 'far fa-image', value: 'jpg' },
+    { label: 'PNG images', sub: 'Lossless pictures', icon: 'far fa-images', value: 'png' },
+    { label: 'Plain text (.txt)', sub: 'Just the words', icon: 'far fa-file-lines', value: 'txt' },
+  ]);
+  if (!pick) return false;
+  try {
+    if (pick.saveAs && SAVE_AS_SUPPORTED) {
+      await withSaveAs(() => exportBytesAs(bytes, base, pick.value, pdfName));
+      return true;
+    }
+    await exportBytesAs(bytes, base, pick.value, pdfName);   // unchanged path
+    return true;
+  } catch (e) {
+    console.error(e);
+    toast('Export failed: ' + e.message, 'err', 4500);
+    return false;
+  }
+};
+</script>
+
+  
 </body>
 </html>
