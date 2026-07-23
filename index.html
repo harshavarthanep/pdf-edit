@@ -7651,6 +7651,177 @@ chooseExport = async function (bytes, base, pdfName) {
 };
 </script>
 
+<!-- New code for sorting in merge -->
+
+<!-- ================================================================
+  ZenPDF — MERGE SORTING + SELECT ALL + RENAME  (paste-in patch)
+  =================================================================
+  WHAT THIS ADDS
+    1. SORT dropdown in the Merge panel (iLovePDF-style):
+       Name A→Z / Z→A, Size smallest/largest first,
+       Pages fewest/most first, Reverse current order.
+       Sorting reorders the workspace files, so the merge order,
+       the numbers on each row and every other tool stay in sync.
+       Dragging a file afterwards resets the dropdown to "Custom".
+    2. SELECT ALL / SELECT NONE buttons in Merge AND in every
+       PDF converter panel (Word / PowerPoint / Excel / JPG).
+    3. RENAME any workspace file — double-click (or double-tap)
+       its name in any list. The .pdf extension is kept for you.
+
+  INSTALL — one paste:
+    Paste this entire <script> block at the very END of your
+    index.html, right before </body>, AFTER all existing scripts
+    (i.e. after the Save-As patch, which is currently last).
+================================================================ -->
+<script>
+'use strict';
+/* ================================================================
+   1) MERGE SORTING
+   ================================================================ */
+const MERGE_SORT_LABELS = {
+  'name-asc':  'Name — A to Z',
+  'name-desc': 'Name — Z to A',
+  'size-asc':  'Size — smallest first',
+  'size-desc': 'Size — largest first',
+  'pages-asc': 'Pages — fewest first',
+  'pages-desc':'Pages — most first',
+  'reverse':   'Reversed order',
+};
+
+const MERGE_SORT_HTML = `
+  <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px">
+    <span class="micro-label" style="white-space:nowrap">
+      <i class="fas fa-arrow-down-a-z" style="margin-right:5px"></i>Sort</span>
+    <select id="merge-sort" style="flex:1;width:auto" onchange="applyMergeSort(this.value)">
+      <option value="">Custom order — drag to arrange</option>
+      <option value="name-asc">Name — A to Z</option>
+      <option value="name-desc">Name — Z to A</option>
+      <option value="size-asc">Size — smallest first</option>
+      <option value="size-desc">Size — largest first</option>
+      <option value="pages-asc">Pages — fewest first</option>
+      <option value="pages-desc">Pages — most first</option>
+      <option value="reverse">Reverse current order</option>
+    </select>
+  </div>`;
+
+const SELECT_BTNS_HTML = (key) => `
+  <div style="display:flex;gap:8px;margin-bottom:10px">
+    <button class="chip-btn" style="flex:1;justify-content:center" onclick="setAllSel('${key}',true)">
+      <i class="fas fa-check-double"></i> Select all</button>
+    <button class="chip-btn" style="flex:1;justify-content:center" onclick="setAllSel('${key}',false)">
+      <i class="far fa-square"></i> Select none</button>
+  </div>`;
+
+/* inject the new controls into the existing panels — no core code edited */
+const _buildToolPanel_sortPatch = buildToolPanel;
+buildToolPanel = function (tool) {
+  let html = _buildToolPanel_sortPatch(tool);
+  if (tool === 'merge') {
+    html = html.replace('<div class="sub-list" id="merge-list"></div>',
+      MERGE_SORT_HTML + SELECT_BTNS_HTML('merge') +
+      '<div class="sub-list" id="merge-list"></div>');
+  } else if (['pdf2word', 'pdf2ppt', 'pdf2excel', 'pdf2img'].includes(tool)) {
+    html = html.replace('<div class="sub-list" id="conv-list"></div>',
+      SELECT_BTNS_HTML('conv') + '<div class="sub-list" id="conv-list"></div>');
+  }
+  return html;
+};
+
+/* any refresh (drag, upload, tick, remove) resets the dropdown to Custom,
+   EXCEPT the refresh triggered by the sort itself, which keeps its label */
+let _mergeSortKeep = '';
+const _refreshPdfLists_sortPatch = refreshPdfLists;
+refreshPdfLists = function () {
+  _refreshPdfLists_sortPatch();
+  const sel = $('merge-sort');
+  if (sel) { sel.value = _mergeSortKeep; }
+  _mergeSortKeep = '';
+};
+
+/* page counts are read once per file and cached on the file object */
+async function ensurePageCounts() {
+  for (const f of pdfFiles) {
+    if (f._pages == null) {
+      try {
+        const pdf = await pdfjsLoad(f.bytes);
+        f._pages = pdf.numPages;
+      } catch (e) { f._pages = 0; }
+    }
+  }
+}
+
+async function applyMergeSort(mode) {
+  if (!mode) return;                       // back to Custom — nothing to do
+  if (pdfFiles.length < 2) { toast('Add at least two PDFs to sort', 'err', 2200); return; }
+  if (mode.startsWith('pages')) {
+    toast('Counting pages…', 'ok', 1800);
+    await ensurePageCounts();
+  }
+  if (mode === 'reverse') {
+    pdfFiles.reverse();
+  } else {
+    const desc = mode.endsWith('desc');
+    const key = mode.split('-')[0];
+    const cmp =
+      key === 'name' ? (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+      : key === 'size' ? (a, b) => a.size - b.size
+      : (a, b) => (a._pages || 0) - (b._pages || 0);
+    pdfFiles.sort((a, b) => desc ? cmp(b, a) : cmp(a, b));
+  }
+  _mergeSortKeep = mode;                   // keep the dropdown on this choice
+  refreshPdfLists();
+  toast('Sorted: ' + (MERGE_SORT_LABELS[mode] || mode));
+}
+
+/* ================================================================
+   2) SELECT ALL / NONE — merge & converter checkboxes in one tap
+   ================================================================ */
+function setAllSel(key, on) {
+  pdfFiles.forEach(f => { f['_sel_' + key] = on; });
+  refreshPdfLists();
+}
+
+/* ================================================================
+   3) RENAME — double-click / double-tap a file name in any list
+   ================================================================ */
+document.addEventListener('dblclick', (e) => {
+  const nameEl = e.target.closest('.fc-name');
+  if (!nameEl) return;
+  const chip = nameEl.closest('.file-chip');
+  if (!chip || !chip.querySelector('.fc-order')) return;   // pdf lists only, not aux lists
+  const container = chip.parentElement;
+  const idx = Array.from(container.children).indexOf(chip);
+  if (idx >= 0 && pdfFiles[idx]) renameWorkspaceFile(idx);
+});
+
+function renameWorkspaceFile(i) {
+  const f = pdfFiles[i];
+  if (!f) return;
+  const stem = baseName(f.name);
+  const s = sheetOpen(`
+    <h3><i class="fas fa-pen"></i> Rename file</h3>
+    <p class="sheet-sub">The .pdf extension is added automatically.</p>
+    <input id="rn-file-name" type="text" maxlength="120" value="${escapeHtml(stem)}" style="width:100%">
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="chip-btn solid" id="rn-file-ok" style="flex:1"><i class="fas fa-check"></i> Rename</button>
+      <button class="chip-btn" id="rn-file-cancel">Cancel</button>
+    </div>`);
+  const inp = s.querySelector('#rn-file-name');
+  setTimeout(() => { inp.focus(); inp.select(); }, 60);
+  const ok = () => {
+    const raw = (inp.value || '').trim().replace(/\.pdf$/i, '');
+    if (!raw) { toast('Type a name first', 'err', 2200); return; }
+    f.name = raw + '.pdf';
+    sheetClose();
+    refreshPdfLists();
+    toast('File renamed', 'ok', 2000);
+  };
+  s.querySelector('#rn-file-ok').onclick = ok;
+  inp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') ok(); });
+  s.querySelector('#rn-file-cancel').onclick = () => sheetClose();
+}
+</script>
+  
   
 </body>
 </html>
