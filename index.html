@@ -7821,6 +7821,522 @@ function renameWorkspaceFile(i) {
   s.querySelector('#rn-file-cancel').onclick = () => sheetClose();
 }
 </script>
+
+<!-- New Merge Update   -->
+
+<!-- ================================================================
+  ZenPDF — MERGE CARD VIEW + PASSWORD PROTECT/UNLOCK + OCR (beta)
+  =================================================================
+  WHAT THIS ADDS (nothing existing is changed — only extended)
+
+  1. MERGE CARD VIEW — a List | Cards toggle in the Merge panel.
+     Cards show a large first-page preview, order number, include
+     checkbox, file name, size & page count, an eye (full preview)
+     — and DRAG-TO-REORDER exactly like Organize (grip on desktop,
+     press & hold on touch). Works together with the Sort dropdown,
+     Select all/none, rename, ticks and the list view. Your choice
+     of view is remembered on the device. Cards are the default.
+
+  2. PROTECT PDF — a new tool card in the workspace: adds an
+     AES-256 password to any open PDF (qpdf compiled to
+     WebAssembly, ~2 MB loaded only when used, 100% local).
+     UNLOCK — opening a password-protected PDF now asks for the
+     password and unlocks it into your workspace, instead of the
+     old "may be password-protected" rejection.
+
+  3. OCR SCANNED PDFs (beta) — an optional checkbox in the
+     PDF→Word panel. When ON, image-only (scanned) PDFs are read
+     with tesseract.js (English) and converted into real editable
+     text instead of embedded pictures. OFF by default; PDFs that
+     already contain text always use the normal engines. The OCR
+     engine (~12 MB) loads only when actually used.
+
+  INSTALL — one paste:
+    Paste EVERYTHING below (the <style> AND the <script> block) at
+    the very END of index.html, right before </body>, AFTER all
+    existing scripts (currently the merge-sort patch is last).
+================================================================ -->
+
+<style>
+/* ── merge card view ─────────────────────────────────────────── */
+#merge-cards{display:none;margin-bottom:14px}
+#merge-cards.on{display:grid;grid-template-columns:repeat(auto-fill,minmax(185px,1fr));gap:14px}
+.merge-card{user-select:none;-webkit-user-select:none}
+.merge-card .mc-num{
+  position:absolute;top:6px;left:6px;background:var(--ink);color:var(--on-ink);
+  font-size:.64rem;font-weight:800;padding:2px 8px;border-radius:999px;z-index:2;
+}
+.merge-card .mc-check{
+  position:absolute;top:7px;right:34px;width:18px;height:18px;accent-color:var(--ink);
+  cursor:pointer;z-index:2;
+}
+.merge-card .mc-eye{
+  position:absolute;bottom:44px;right:8px;z-index:2;background:var(--surface);
+  border:1px solid var(--line);border-radius:8px;width:30px;height:30px;
+}
+.merge-card .mc-name{
+  font-size:.74rem;font-weight:650;color:var(--ink);margin-top:8px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.merge-card .mc-meta{font-size:.66rem;color:var(--faint);font-weight:600;margin-top:2px}
+.merge-card.excluded .th-canvas,.merge-card.excluded .mc-name,
+.merge-card.excluded .mc-meta{opacity:.4}
+.merge-card.excluded .mc-name{text-decoration:line-through}
+@media(max-width:640px){
+  #merge-cards.on{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+}
+/* password inputs get the same styling as text inputs */
+input[type=password]{
+  width:100%;background:var(--bg);border:1px solid var(--line);padding:11px 13px;
+  border-radius:var(--radius-sm);color:var(--ink);font-family:inherit;font-size:.9rem;
+}
+input[type=password]:focus{outline:none;border-color:var(--ink)}
+</style>
+
+<script>
+'use strict';
+/* ================================================================
+   PART 1 — MERGE CARD VIEW with drag-to-reorder
+   ================================================================ */
+let mergeView = 'cards';
+try { mergeView = localStorage.getItem('zenpdf-mergeview') || 'cards'; } catch (e) {}
+
+const MERGE_VIEW_HTML = `
+  <div class="seg" id="merge-view-seg" style="margin-bottom:12px">
+    <button data-v="cards" onclick="setMergeView('cards')"><i class="fas fa-table-cells" style="margin-right:6px"></i>Cards</button>
+    <button data-v="list" onclick="setMergeView('list')"><i class="fas fa-list" style="margin-right:6px"></i>List</button>
+  </div>
+  <div class="org-grid" id="merge-cards"></div>`;
+
+const _buildToolPanel_cards = buildToolPanel;
+buildToolPanel = function (tool) {
+  let html = _buildToolPanel_cards(tool);
+  if (tool === 'merge') {
+    html = html.replace('<div class="sub-list" id="merge-list"></div>',
+      MERGE_VIEW_HTML + '<div class="sub-list" id="merge-list"></div>');
+  }
+  if (tool === 'pdf2word') {
+    html = html.replace('<button class="primary-btn" id="conv-btn"',
+      `<label style="display:flex;align-items:center;gap:9px;font-size:.8rem;font-weight:600;color:var(--ink-soft);margin-bottom:10px;cursor:pointer">
+        <input type="checkbox" id="ocr-opt" style="accent-color:var(--ink);width:16px;height:16px">
+        OCR scanned PDFs <span class="micro-label" style="letter-spacing:.08em">BETA</span> — read image-only PDFs into real editable text (English, ~12 MB engine loads on first use)
+      </label><button class="primary-btn" id="conv-btn"`);
+  }
+  if (tool === 'protect') return protectPanelHtml();
+  return html;
+};
+
+function setMergeView(v) {
+  mergeView = v === 'list' ? 'list' : 'cards';
+  try { localStorage.setItem('zenpdf-mergeview', mergeView); } catch (e) {}
+  applyMergeView();
+}
+
+function applyMergeView() {
+  const cards = $('merge-cards'), list = $('merge-list'), seg = $('merge-view-seg');
+  if (!cards || !list) return;
+  const isCards = mergeView === 'cards';
+  cards.classList.toggle('on', isCards);
+  list.style.display = isCards ? 'none' : '';
+  if (seg) seg.querySelectorAll('button').forEach(b =>
+    b.classList.toggle('on', b.dataset.v === mergeView));
+  if (isCards) renderMergeCards();
+}
+
+/* larger first-page preview for the cards — cached on the file object */
+async function mergeCardThumb(i, imgEl) {
+  const f = pdfFiles[i];
+  if (!f || !imgEl) return;
+  if (f._thumbCard) { imgEl.src = f._thumbCard; return; }
+  try {
+    const pdf = await pdfjsLoad(f.bytes);
+    const page = await pdf.getPage(1);
+    const v1 = page.getViewport({ scale: 1 });
+    const viewport = page.getViewport({ scale: 300 / v1.width });
+    const cv = document.createElement('canvas');
+    cv.width = Math.round(viewport.width); cv.height = Math.round(viewport.height);
+    const cx = cv.getContext('2d');
+    cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, cv.width, cv.height);
+    await page.render({ canvasContext: cx, viewport }).promise;
+    f._thumbCard = cv.toDataURL('image/jpeg', 0.75);
+    imgEl.src = f._thumbCard;
+  } catch (e) { /* non-fatal */ }
+}
+
+let _mcSquelch = false;
+function renderMergeCards() {
+  const grid = $('merge-cards');
+  if (!grid) return;
+  grid.innerHTML = '';
+  pdfFiles.forEach((f, i) => {
+    const cell = document.createElement('div');
+    cell.className = 'org-thumb merge-card' + (isSel(f, 'merge') ? '' : ' excluded');
+    cell.innerHTML = `
+      <span class="mc-num">#${i + 1}</span>
+      <input type="checkbox" class="mc-check" title="Include in the merge" ${isSel(f, 'merge') ? 'checked' : ''}>
+      <img class="th-canvas" alt="">
+      <button class="icon-btn mc-eye" title="Preview the whole PDF"><i class="far fa-eye"></i></button>
+      <div class="mc-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
+      <div class="mc-meta">${fmtSize(f.size)}<span class="mc-pages"></span></div>
+      <span class="th-grip" title="Drag to reorder"><i class="fas fa-grip-vertical"></i></span>`;
+    cell.querySelector('.mc-check').addEventListener('change', (e) => {
+      e.stopPropagation(); toggleSel(i, 'merge');
+    });
+    cell.querySelector('.mc-eye').addEventListener('click', (e) => {
+      e.stopPropagation(); previewPdf(i);
+    });
+    // tapping the preview toggles include too (handy on mobile)
+    cell.querySelector('.th-canvas').addEventListener('click', () => {
+      if (_mcSquelch) { _mcSquelch = false; return; }
+      toggleSel(i, 'merge');
+    });
+    mergeCardDragInit(cell, i);
+    grid.appendChild(cell);
+    mergeCardThumb(i, cell.querySelector('.th-canvas'));
+    // page count fills in lazily and is cached for the Sort dropdown too
+    (async () => {
+      if (f._pages == null) {
+        try { const pdf = await pdfjsLoad(f.bytes); f._pages = pdf.numPages; }
+        catch (e) { f._pages = 0; }
+      }
+      const el = cell.querySelector('.mc-pages');
+      if (el && f._pages) el.textContent = ` · ${f._pages} page${f._pages > 1 ? 's' : ''}`;
+    })();
+  });
+}
+
+/* drag-to-reorder — same feel as Organize: grip anytime, press & hold on touch */
+function mergeCardDragInit(cell, index) {
+  cell.addEventListener('pointerdown', (e) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    if (e.target.closest('.mc-check') || e.target.closest('.mc-eye')) return;
+    const fromGrip = !!e.target.closest('.th-grip');
+    const startX = e.clientX, startY = e.clientY;
+    let started = false, timer = null;
+    const start = () => { if (started) return; started = true; beginMergeCardDrag(cell, index, e.pointerId, startX, startY); };
+    const cleanup = () => {
+      clearTimeout(timer);
+      cell.removeEventListener('pointermove', move);
+      cell.removeEventListener('pointerup', up);
+      cell.removeEventListener('pointercancel', up);
+    };
+    const move = (ev) => {
+      if (started) { cleanup(); return; }
+      const d = Math.hypot(ev.clientX - startX, ev.clientY - startY);
+      if (ev.pointerType === 'touch') { if (d > 11) cleanup(); }
+      else if (d > 4) { start(); cleanup(); }
+    };
+    const up = () => cleanup();
+    if (fromGrip) { e.preventDefault(); start(); return; }
+    if (e.pointerType === 'touch') timer = setTimeout(() => { start(); cleanup(); }, 260);
+    cell.addEventListener('pointermove', move);
+    cell.addEventListener('pointerup', up);
+    cell.addEventListener('pointercancel', up);
+  });
+}
+
+function beginMergeCardDrag(cell, index, pointerId, cx, cy) {
+  const grid = $('merge-cards');
+  const cells = Array.from(grid.children);
+  try { cell.setPointerCapture(pointerId); } catch (e) {}
+  if (navigator.vibrate) { try { navigator.vibrate(8); } catch (e) {} }
+  const ghost = document.createElement('div');
+  ghost.className = 'drag-ghost';
+  const img = cell.querySelector('.th-canvas');
+  ghost.innerHTML = img && img.src ? `<img src="${img.src}" alt="">`
+    : '<div style="aspect-ratio:3/4;display:grid;place-items:center;color:var(--faint)"><i class="far fa-file"></i></div>';
+  ghost.style.left = cx + 'px'; ghost.style.top = cy + 'px';
+  document.body.appendChild(ghost);
+  cell.classList.add('drag-src');
+  let dropIndex = index;
+  const move = (e) => {
+    e.preventDefault();
+    ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px';
+    dropIndex = cells.length;
+    for (let i = 0; i < cells.length; i++) {
+      const r = cells[i].getBoundingClientRect();
+      if (e.clientY < r.top) { dropIndex = i; break; }
+      if (e.clientY <= r.bottom && e.clientX < r.left + r.width / 2) { dropIndex = i; break; }
+    }
+    cells.forEach(c => c.classList.remove('drop-before', 'drop-after'));
+    if (dropIndex >= cells.length) cells[cells.length - 1].classList.add('drop-after');
+    else cells[dropIndex].classList.add('drop-before');
+    if (e.clientY < 90) window.scrollBy(0, -16);
+    else if (e.clientY > window.innerHeight - 90) window.scrollBy(0, 16);
+  };
+  const up = () => {
+    document.removeEventListener('pointermove', move);
+    document.removeEventListener('pointerup', up);
+    document.removeEventListener('pointercancel', up);
+    ghost.remove();
+    cells.forEach(c => c.classList.remove('drop-before', 'drop-after'));
+    cell.classList.remove('drag-src');
+    _mcSquelch = true;
+    setTimeout(() => { _mcSquelch = false; }, 250);
+    let to = dropIndex;
+    if (to > index) to--;
+    if (to !== index && to >= 0 && to < pdfFiles.length) {
+      const [it] = pdfFiles.splice(index, 1);
+      pdfFiles.splice(to, 0, it);
+      refreshPdfLists();
+    }
+  };
+  document.addEventListener('pointermove', move);
+  document.addEventListener('pointerup', up);
+  document.addEventListener('pointercancel', up);
+}
+
+/* keep the cards in sync with every change (uploads, ticks, sort, drag) */
+const _refreshPdfLists_cards = refreshPdfLists;
+refreshPdfLists = function () {
+  _refreshPdfLists_cards();
+  if ($('merge-cards')) applyMergeView();
+};
+const _openTool_cards = openTool;
+openTool = function (tool) {
+  _openTool_cards(tool);
+  if (tool === 'merge') applyMergeView();
+};
+
+/* ================================================================
+   PART 2 — PASSWORD: Protect PDF tool + unlock on upload
+   (qpdf 11 compiled to WebAssembly — AES-256, 100% local)
+   ================================================================ */
+const QPDF_CDN = 'https://cdn.jsdelivr.net/npm/@jspawn/qpdf-wasm@0.0.2/';
+let _qpdfFactory = null;
+
+async function runQpdf(args, files) {
+  if (!_qpdfFactory) {
+    const m = await import(QPDF_CDN + 'qpdf.mjs');
+    _qpdfFactory = m.default;
+  }
+  const mod = await _qpdfFactory({
+    locateFile: (f) => QPDF_CDN + f,
+    noInitialRun: true, print: () => {}, printErr: () => {},
+  });
+  for (const [name, data] of Object.entries(files)) mod.FS.writeFile(name, data);
+  let code = 0;
+  try { code = mod.callMain(args); } catch (e) { code = (e && e.status != null) ? e.status : 1; }
+  return { code, FS: mod.FS };
+}
+
+/* the new Protect tool — registered everywhere the other tools live */
+TOOL_META.protect = { icon: 'fa-lock', title: 'Protect PDF',
+  desc: 'Add an AES-256 password to any open PDF — encrypted right on your device.' };
+SWITCH_DESTS.push({ id: 'protect', label: 'Protect PDF', icon: 'fas fa-lock',
+  sub: 'Password-protect with AES-256' });
+HELP.protect = { t: 'Protect PDF', s: [
+  ['Pick a password', 'Choose the document and type the password twice. AES-256 encryption — the strongest PDF standard.', null],
+  ['Download', 'The protected copy downloads immediately. Your workspace copy stays unlocked so every tool keeps working.', null],
+  ['Unlocking', 'Opening a password-protected PDF asks for its password and unlocks it into the workspace — download it again for an unlocked copy.', null],
+]};
+
+function protectPanelHtml() {
+  return `
+    ${fileSelectHtml('pw-file')}
+    <div class="field"><label>Password</label>
+      <input type="password" id="pw-1" maxlength="60" placeholder="At least 4 characters" autocomplete="new-password"></div>
+    <div class="field"><label>Repeat password</label>
+      <input type="password" id="pw-2" maxlength="60" placeholder="Type it again" autocomplete="new-password"></div>
+    <button class="primary-btn" onclick="procProtect(this)"><i class="fas fa-lock"></i> Encrypt &amp; download</button>
+    <p class="note">AES-256 encryption, processed 100% on your device. The copy in your workspace stays
+    unlocked so editing and converting keep working — only the download is protected.
+    To unlock a protected PDF, just open it and enter its password.</p>`;
+}
+
+async function procProtect(btn) {
+  const fi = +$('pw-file').value;
+  const f = pdfFiles[fi];
+  const p1 = $('pw-1').value, p2 = $('pw-2').value;
+  if (!f) return;
+  if (p1.length < 4) { toast('Use at least 4 characters', 'err', 2600); return; }
+  if (p1 !== p2) { toast('The two passwords do not match', 'err', 2600); return; }
+  busy(btn, true, 'Encrypting…');
+  try {
+    const r = await runQpdf(['--encrypt', p1, p1, '256', '--', '/in.pdf', '/out.pdf'],
+      { '/in.pdf': f.bytes });
+    if (r.code !== 0 && r.code !== 3) throw new Error('encryption failed (code ' + r.code + ')');
+    const out = r.FS.readFile('/out.pdf');
+    download(new Blob([out], { type: 'application/pdf' }),
+      'protected_' + f.name, 'application/pdf');
+    toast('Protected PDF downloaded — keep the password safe, it cannot be recovered');
+  } catch (e) {
+    console.error(e);
+    toast('Could not encrypt: ' + e.message, 'err', 4500);
+  }
+  busy(btn, false);
+}
+
+/* add the Protect card to the workspace grid, right after Rotate all */
+try {
+  const rotateCard = document.querySelector('#view-workspace .action-card[onclick="openTool(\'rotate\')"]');
+  if (rotateCard) rotateCard.insertAdjacentHTML('afterend', `
+    <button class="action-card" onclick="openTool('protect')">
+      <div class="a-icon"><i class="fas fa-lock"></i></div>
+      <b>Protect PDF</b><p>AES-256 password on a downloaded copy</p>
+      <i class="fas fa-arrow-right arrow"></i>
+    </button>`);
+} catch (e) {}
+
+/* ask for a password in a sheet — resolves the string, or null on cancel */
+function askPdfPassword(fname, attempt) {
+  return new Promise((resolve) => {
+    const s = sheetOpen(`
+      <h3><i class="fas fa-lock"></i> Password required</h3>
+      <p class="sheet-sub">"${escapeHtml(fname)}" is password-protected.${attempt > 1 ? ' <b>Wrong password — try again.</b>' : ''}
+      It will be unlocked locally and added to your workspace.</p>
+      <input type="password" id="upw" maxlength="60" placeholder="Password" autocomplete="off">
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="chip-btn solid" id="upw-ok" style="flex:1"><i class="fas fa-unlock"></i> Unlock</button>
+        <button class="chip-btn" id="upw-cancel">Skip this file</button>
+      </div>`);
+    const inp = s.querySelector('#upw');
+    setTimeout(() => inp.focus(), 60);
+    const done = (v) => { sheetClose(); resolve(v); };
+    s.querySelector('#upw-ok').onclick = () => done(inp.value);
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') done(inp.value); });
+    s.querySelector('#upw-cancel').onclick = () => done(null);
+  });
+}
+
+/* upload now unlocks protected PDFs instead of rejecting them */
+handlePdfUpload = async function (fileList) {
+  const files = Array.from(fileList).filter(f =>
+    f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
+  if (!files.length) { toast('Please choose PDF files', 'err'); return; }
+  let added = 0;
+  for (const f of files) {
+    let bytes = new Uint8Array(await f.arrayBuffer());
+    let ok = false;
+    try {
+      await PDFDocument.load(bytes, { ignoreEncryption: false });
+      ok = true;
+    } catch (e) {
+      if (/encrypt/i.test(String(e && e.message))) {
+        // password-protected — ask, unlock locally with qpdf, retry
+        for (let attempt = 1; attempt <= 3 && !ok; attempt++) {
+          const pw = await askPdfPassword(f.name, attempt);
+          if (pw == null) break;
+          try {
+            const r = await runQpdf(['--password=' + pw, '--decrypt', '/in.pdf', '/out.pdf'],
+              { '/in.pdf': bytes });
+            if (r.code === 0 || r.code === 3) {
+              const dec = r.FS.readFile('/out.pdf');
+              await PDFDocument.load(dec, { ignoreEncryption: false });
+              bytes = dec;
+              ok = true;
+              toast(`${escapeHtml(f.name)} unlocked`, 'ok', 2400);
+            }
+          } catch (e2) { /* wrong password or decode failure — loop asks again */ }
+        }
+        if (!ok) { toast(`Skipped ${escapeHtml(f.name)} — could not unlock`, 'err', 4000); continue; }
+      } else {
+        toast(`Couldn't open ${escapeHtml(f.name)} — the file may be corrupt`, 'err', 4500);
+        continue;
+      }
+    }
+    pdfFiles.push({ name: f.name, bytes, size: bytes.length });
+    added++;
+  }
+  if (!added || !pdfFiles.length) return;
+  const slot = $('resume-slot'); if (slot) slot.innerHTML = '';
+  refreshPdfLists();
+  toast(`${added} PDF${added > 1 ? 's' : ''} ready`);
+  await afterUploadRoute(pdfFiles.length - added);
+};
+
+/* ================================================================
+   PART 3 — OCR (beta): image-only PDFs → real editable Word text
+   ================================================================ */
+const TESS_CDN = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+let _tessWorker = null;
+
+async function getTesseractWorker() {
+  if (_tessWorker) return _tessWorker;
+  await loadScriptOnce(TESS_CDN);
+  toast('Loading the OCR engine (first time only, ~12 MB)…', 'ok', 5200);
+  _tessWorker = await Tesseract.createWorker('eng');
+  return _tessWorker;
+}
+
+async function pdfHasText(bytes) {
+  try {
+    const pdf = await pdfjsLoad(bytes);
+    const n = Math.min(pdf.numPages, 3);
+    for (let i = 1; i <= n; i++) {
+      const tc = await (await pdf.getPage(i)).getTextContent();
+      if (tc.items.some(it => it.str && it.str.trim())) return true;
+    }
+    return false;
+  } catch (e) { return true; }   // unsure — treat as text so normal engines run
+}
+
+async function ocrPdfToDocxBlob(bytes) {
+  const { Document, Packer, Paragraph, TextRun, PageBreak } = docx;
+  const pdf = await pdfjsLoad(bytes);
+  const worker = await getTesseractWorker();
+  const children = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    toast(`OCR — reading page ${i} of ${pdf.numPages}…`, 'ok', 2400);
+    const page = await pdf.getPage(i);
+    const vp = page.getViewport({ scale: 2 });
+    const cv = document.createElement('canvas');
+    cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+    const cx = cv.getContext('2d');
+    cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, cv.width, cv.height);
+    await page.render({ canvasContext: cx, viewport: vp }).promise;
+    const { data } = await worker.recognize(cv);
+    if (i > 1) children.push(new Paragraph({ children: [new PageBreak()] }));
+    let any = false;
+    for (const line of data.lines || []) {
+      const text = (line.text || '').replace(/\s+/g, ' ').trim();
+      if (!text) continue;
+      any = true;
+      // canvas is at 2px/pt — estimate the font size from the line height
+      const pt = Math.max(8, Math.min(32, ((line.bbox.y1 - line.bbox.y0) / 2) * 0.72));
+      children.push(new Paragraph({
+        children: [new TextRun({ text, font: 'Arial', size: Math.round(pt * 2) })],
+      }));
+    }
+    if (!any) children.push(new Paragraph({}));
+  }
+  const doc = new Document({ sections: [{ children }] });
+  return Packer.toBlob(doc);
+}
+
+/* PDF→Word — when the OCR box is ticked, scanned PDFs go through OCR;
+   PDFs with real text keep using the normal high-fidelity engines */
+const _procPdf2Word_ocr = procPdf2Word;
+procPdf2Word = async function (btn) {
+  const ocrOn = $('ocr-opt') && $('ocr-opt').checked;
+  if (!ocrOn) return _procPdf2Word_ocr(btn);
+  const chosen = pdfFiles.filter(f => isSel(f, 'conv'));
+  if (!chosen.length) { toast('Tick at least one PDF to convert', 'err', 2600); return; }
+  busy(btn, true, 'Converting…');
+  try {
+    const out = {};
+    for (const f of chosen) {
+      if (await pdfHasText(f.bytes)) {
+        out[`${baseName(f.name)}.docx`] = await withFidelity(
+          () => fidelityPdfToDocx(f.bytes), () => pdfToDocxBlob(f.bytes), 'PDF to Word');
+      } else {
+        try {
+          out[`${baseName(f.name)}.docx`] = await ocrPdfToDocxBlob(f.bytes);
+          toast(`${escapeHtml(f.name)}: scanned pages read with OCR ✓`, 'ok', 3200);
+        } catch (e) {
+          console.warn('[ZenPDF] OCR failed — normal conversion used:', e);
+          toast('OCR could not run — the normal converter was used instead', 'err', 4200);
+          out[`${baseName(f.name)}.docx`] = await withFidelity(
+            () => fidelityPdfToDocx(f.bytes), () => pdfToDocxBlob(f.bytes), 'PDF to Word');
+        }
+      }
+    }
+    await bulkDownload(out, 'pdf_to_word.zip');
+    toast('Word document ready');
+  } catch (e) { console.error(e); toast(e.message, 'err', 4500); }
+  busy(btn, false);
+};
+</script>
   
   
 </body>
