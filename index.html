@@ -8337,6 +8337,333 @@ procPdf2Word = async function (btn) {
   busy(btn, false);
 };
 </script>
+
+<!-- New Update merge wide   -->
+
+<!-- ================================================================
+  ZenPDF — WIDE MERGE GRID + NICER CARDS + MERGE PREVIEW MODAL
+           + PER-PAGE PREVIEW IN ORGANIZE   (paste-in patch)
+  =================================================================
+  WHAT THIS CHANGES / ADDS
+    1. The Merge tool now uses the FULL page width (like Organize),
+       and the cards are a little smaller — many PDFs per row.
+    2. The include checkbox moved off the thumbnail into a tidy
+       "Include" row under the preview, next to the eye button.
+    3. Clicking "Merge N selected files" now shows a PREVIEW of the
+       merged result first — with "Looks good — download" and
+       "Back to merge" buttons (top and bottom). Download opens
+       your normal export sheet with every format + Save As.
+    4. Organize: every page thumbnail gets a small eye button —
+       tap it to preview that page large, with ‹ › arrows to flip
+       through neighbouring pages. Rotation is shown correctly.
+
+  INSTALL — one paste:
+    Paste EVERYTHING below (the <style> AND the <script>) at the
+    very END of index.html, right before </body>, AFTER all
+    existing patches (the cards/password/OCR patch is currently last).
+================================================================ -->
+
+<style>
+/* 1) merge gets the full-width treatment, like Organize */
+.tool-wrap.wide-tool{max-width:1080px}
+/* 2) smaller cards — more PDFs per row */
+#merge-cards.on{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+@media(max-width:640px){
+  #merge-cards.on{grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:9px}
+}
+/* checkbox & eye live in a clean footer row now, not on the thumbnail */
+.merge-card .mc-check{position:static;width:16px;height:16px;accent-color:var(--ink);cursor:pointer;flex-shrink:0}
+.merge-card .mc-foot{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:8px}
+.merge-card .mc-inc{
+  display:flex;align-items:center;gap:6px;font-size:.68rem;font-weight:700;
+  color:var(--muted);cursor:pointer;user-select:none;-webkit-user-select:none;
+}
+.merge-card .mc-eye{position:static;width:28px;height:28px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.merge-card .mc-name{margin-top:6px}
+/* organize — per-page preview eye */
+.org-thumb .org-eye{
+  position:absolute;bottom:32px;right:6px;z-index:3;width:28px;height:28px;
+  background:var(--surface);border:1px solid var(--line);border-radius:8px;
+  box-shadow:var(--shadow-sm);
+}
+/* single-page preview navigation */
+.pgnav{display:flex;align-items:center;justify-content:center;gap:14px;margin:10px 0 4px}
+.pgnav .zoom-label{min-width:90px}
+#opv-img-wrap{display:grid;place-items:center}
+#opv-img-wrap canvas,#opv-img-wrap img{
+  max-width:100%;border:1px solid var(--line);border-radius:6px;background:#fff;box-shadow:var(--shadow-sm);
+}
+</style>
+
+<script>
+'use strict';
+/* ================================================================
+   1) WIDE MERGE — the merge tool stretches to the full page width
+   ================================================================ */
+const _openTool_wide = openTool;
+openTool = function (tool) {
+  _openTool_wide(tool);
+  const tw = document.querySelector('#view-tool .tool-wrap');
+  if (tw) tw.classList.toggle('wide-tool', tool === 'merge');
+};
+
+/* ================================================================
+   2) NICER CARDS — checkbox in an "Include" footer row + eye
+      (same behaviour as before: drag, sort, rename, preview, ticks)
+   ================================================================ */
+renderMergeCards = function () {
+  const grid = $('merge-cards');
+  if (!grid) return;
+  grid.innerHTML = '';
+  pdfFiles.forEach((f, i) => {
+    const cell = document.createElement('div');
+    cell.className = 'org-thumb merge-card' + (isSel(f, 'merge') ? '' : ' excluded');
+    cell.innerHTML = `
+      <span class="mc-num">#${i + 1}</span>
+      <img class="th-canvas" alt="">
+      <div class="mc-foot">
+        <label class="mc-inc" title="Untick to leave this PDF out — it stays in your workspace">
+          <input type="checkbox" class="mc-check" ${isSel(f, 'merge') ? 'checked' : ''}> Include
+        </label>
+        <button class="icon-btn mc-eye" title="Preview the whole PDF"><i class="far fa-eye"></i></button>
+      </div>
+      <div class="mc-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
+      <div class="mc-meta">${fmtSize(f.size)}<span class="mc-pages"></span></div>
+      <span class="th-grip" title="Drag to reorder"><i class="fas fa-grip-vertical"></i></span>`;
+    const inc = cell.querySelector('.mc-inc');
+    inc.addEventListener('pointerdown', (e) => e.stopPropagation());   // never starts a drag
+    cell.querySelector('.mc-check').addEventListener('change', (e) => {
+      e.stopPropagation(); toggleSel(i, 'merge');
+    });
+    const eye = cell.querySelector('.mc-eye');
+    eye.addEventListener('pointerdown', (e) => e.stopPropagation());
+    eye.addEventListener('click', (e) => { e.stopPropagation(); previewPdf(i); });
+    cell.querySelector('.th-canvas').addEventListener('click', () => {
+      if (_mcSquelch) { _mcSquelch = false; return; }
+      toggleSel(i, 'merge');
+    });
+    mergeCardDragInit(cell, i);
+    grid.appendChild(cell);
+    mergeCardThumb(i, cell.querySelector('.th-canvas'));
+    (async () => {
+      if (f._pages == null) {
+        try { const pdf = await pdfjsLoad(f.bytes); f._pages = pdf.numPages; }
+        catch (e) { f._pages = 0; }
+      }
+      const el = cell.querySelector('.mc-pages');
+      if (el && f._pages) el.textContent = ` · ${f._pages}p`;
+    })();
+  });
+};
+
+/* ================================================================
+   3) MERGE PREVIEW MODAL — see the merged result, then decide
+   ================================================================ */
+function mergePreviewSheet(bytes, nFiles) {
+  return new Promise((resolve) => {
+    const s = sheetOpen(`
+      <h3 style="justify-content:space-between">
+        <span style="display:inline-flex;align-items:center;gap:9px"><i class="far fa-eye"></i> Merged preview</span>
+        <button class="icon-btn" id="mpv-close" title="Back to merge"><i class="fas fa-xmark"></i></button></h3>
+      <p class="sheet-sub" id="mpv-status">Rendering the merged document…</p>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <button class="chip-btn solid" id="mpv-dl" style="flex:1;justify-content:center;min-width:180px">
+          <i class="fas fa-download"></i> Looks good — download</button>
+        <button class="chip-btn" id="mpv-back"><i class="fas fa-arrow-left"></i> Back to merge</button>
+      </div>
+      <div id="mpv-pages" style="display:flex;flex-direction:column;gap:12px"></div>
+      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+        <button class="chip-btn solid" id="mpv-dl2" style="flex:1;justify-content:center;min-width:180px">
+          <i class="fas fa-download"></i> Looks good — download</button>
+        <button class="chip-btn" id="mpv-back2"><i class="fas fa-arrow-left"></i> Back to merge</button>
+      </div>`);
+    s.classList.add('wide');
+    let settled = false;
+    const done = (v) => { if (settled) return; settled = true; sheetClose(); resolve(v); };
+    ['mpv-dl', 'mpv-dl2'].forEach(id => { s.querySelector('#' + id).onclick = () => done('download'); });
+    ['mpv-back', 'mpv-back2', 'mpv-close'].forEach(id => { s.querySelector('#' + id).onclick = () => done(null); });
+    const bd = $('sheet-bd');
+    if (bd) bd.addEventListener('pointerdown', (e) => { if (e.target.id === 'sheet-bd') done(null); });
+
+    (async () => {
+      const wrap = s.querySelector('#mpv-pages');
+      const status = s.querySelector('#mpv-status');
+      try {
+        const pdf = await pdfjsLoad(bytes);
+        for (let n = 1; n <= pdf.numPages; n++) {
+          if (settled || !document.body.contains(wrap)) return;
+          const page = await pdf.getPage(n);
+          const v1 = page.getViewport({ scale: 1 });
+          const viewport = page.getViewport({ scale: Math.min(1.4, 720 / v1.width) });
+          const cv = document.createElement('canvas');
+          cv.width = Math.round(viewport.width); cv.height = Math.round(viewport.height);
+          const cx = cv.getContext('2d');
+          cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, cv.width, cv.height);
+          await page.render({ canvasContext: cx, viewport }).promise;
+          const img = document.createElement('img');
+          img.src = cv.toDataURL('image/jpeg', 0.82);
+          img.alt = 'Page ' + n;
+          img.style.cssText = 'width:100%;display:block;border:1px solid var(--line);border-radius:6px;background:#fff';
+          wrap.appendChild(img);
+          status.textContent = n < pdf.numPages
+            ? `Rendering page ${n + 1} of ${pdf.numPages}…`
+            : `${pdf.numPages} pages from ${nFiles} files · ${fmtSize(bytes.length)} — check the order, then download`;
+        }
+      } catch (e) {
+        status.textContent = 'Could not render the preview: ' + e.message +
+          ' — you can still download below.';
+      }
+    })();
+  });
+}
+
+/* merge now previews first; download uses the normal export sheet */
+procMerge = async function (btn) {
+  const chosen = pdfFiles.filter(f => isSel(f, 'merge'));
+  if (chosen.length < 2) { toast('Tick at least two PDFs to merge', 'err', 2800); return; }
+  busy(btn, true, 'Merging…');
+  let bytes = null;
+  try {
+    const merged = await PDFDocument.create();
+    for (const f of chosen) {
+      const src = await PDFDocument.load(f.bytes);
+      (await merged.copyPages(src, src.getPageIndices())).forEach(p => merged.addPage(p));
+    }
+    bytes = await merged.save();
+  } catch (e) {
+    toast('Merge failed: ' + e.message, 'err');
+    busy(btn, false);
+    return;
+  }
+  busy(btn, false);
+  const go = await mergePreviewSheet(bytes, chosen.length);
+  if (go === 'download') {
+    const done = await chooseExport(bytes, 'merged', 'merged.pdf');
+    if (done) toast('Merged document exported');
+  }
+};
+
+/* ================================================================
+   4) ORGANIZE — eye button on every page + large ‹ › page preview
+   ================================================================ */
+const _renderOrgGrid_pv = renderOrgGrid;
+renderOrgGrid = async function () {
+  await _renderOrgGrid_pv();
+  document.querySelectorAll('#org-grid .org-thumb').forEach((cell, i) => {
+    if (cell.querySelector('.org-eye')) return;
+    const b = document.createElement('button');
+    b.className = 'icon-btn org-eye';
+    b.title = 'Preview this page';
+    b.innerHTML = '<i class="far fa-eye"></i>';
+    b.addEventListener('pointerdown', (e) => e.stopPropagation());   // never starts a drag
+    b.addEventListener('click', (e) => { e.stopPropagation(); previewOrgPage(i); });
+    cell.appendChild(b);
+  });
+};
+
+/* draw one organize entry (src page / blank / image) onto a canvas,
+   honouring its rotation */
+async function orgEntryToCanvas(entry, maxW) {
+  const rot = ((entry.rot || 0) % 360 + 360) % 360;
+  let base;   // unrotated canvas
+  if (entry.type === 'src') {
+    const page = await org.docs[entry.doc].pdfjs.getPage(entry.page + 1);
+    const v1 = page.getViewport({ scale: 1 });
+    const viewport = page.getViewport({ scale: Math.min(1.6, maxW / v1.width) });
+    base = document.createElement('canvas');
+    base.width = Math.round(viewport.width); base.height = Math.round(viewport.height);
+    const cx = base.getContext('2d');
+    cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, base.width, base.height);
+    await page.render({ canvasContext: cx, viewport }).promise;
+  } else if (entry.type === 'image') {
+    const img = await new Promise((res) => {
+      const im = new Image();
+      im.onload = () => res(im); im.onerror = () => res(null);
+      im.src = entry.dataUrl;
+    });
+    base = document.createElement('canvas');
+    const k = img ? Math.min(1, maxW / img.naturalWidth) : 1;
+    base.width = img ? Math.round(img.naturalWidth * k) : 420;
+    base.height = img ? Math.round(img.naturalHeight * k) : 594;
+    const cx = base.getContext('2d');
+    cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, base.width, base.height);
+    if (img) cx.drawImage(img, 0, 0, base.width, base.height);
+  } else {   // blank
+    base = document.createElement('canvas');
+    base.width = 420; base.height = 594;
+    const cx = base.getContext('2d');
+    cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, base.width, base.height);
+    cx.fillStyle = '#aeaeb2'; cx.font = '600 15px Inter, sans-serif';
+    cx.textAlign = 'center';
+    cx.fillText('Blank page', base.width / 2, base.height / 2);
+  }
+  if (!rot) return base;
+  const out = document.createElement('canvas');
+  const swap = rot === 90 || rot === 270;
+  out.width = swap ? base.height : base.width;
+  out.height = swap ? base.width : base.height;
+  const cx = out.getContext('2d');
+  cx.translate(out.width / 2, out.height / 2);
+  cx.rotate(rot * Math.PI / 180);
+  cx.drawImage(base, -base.width / 2, -base.height / 2);
+  return out;
+}
+
+async function previewOrgPage(startIndex) {
+  let idx = startIndex;
+  const s = sheetOpen(`
+    <h3 style="justify-content:space-between">
+      <span style="display:inline-flex;align-items:center;gap:9px"><i class="far fa-eye"></i> Page preview</span>
+      <button class="icon-btn" id="opv-close" title="Close"><i class="fas fa-xmark"></i></button></h3>
+    <div class="pgnav">
+      <button class="chip-btn" id="opv-prev" title="Previous page"><i class="fas fa-chevron-left"></i></button>
+      <span class="zoom-label" id="opv-label" style="cursor:default"></span>
+      <button class="chip-btn" id="opv-next" title="Next page"><i class="fas fa-chevron-right"></i></button>
+    </div>
+    <div id="opv-img-wrap"><p class="sheet-sub">Rendering…</p></div>
+    <p class="note" style="margin-top:10px">Use ‹ › (or the arrow keys) to flip through the pages in their current order.</p>`);
+  s.classList.add('wide');
+  let closed = false;
+  const close = () => { closed = true; document.removeEventListener('keydown', keys); sheetClose(); };
+  s.querySelector('#opv-close').onclick = close;
+  const bd = $('sheet-bd');
+  if (bd) bd.addEventListener('pointerdown', (e) => { if (e.target.id === 'sheet-bd') close(); });
+
+  let renderToken = 0;
+  async function show() {
+    const my = ++renderToken;
+    const wrap = s.querySelector('#opv-img-wrap');
+    const label = s.querySelector('#opv-label');
+    if (!wrap || closed) return;
+    label.textContent = `Page ${idx + 1} of ${org.entries.length}`;
+    s.querySelector('#opv-prev').disabled = idx === 0;
+    s.querySelector('#opv-next').disabled = idx === org.entries.length - 1;
+    try {
+      const cv = await orgEntryToCanvas(org.entries[idx], 720);
+      if (closed || my !== renderToken || !document.body.contains(wrap)) return;
+      wrap.innerHTML = '';
+      wrap.appendChild(cv);
+    } catch (e) {
+      if (document.body.contains(wrap)) wrap.innerHTML =
+        '<p class="sheet-sub">Could not render this page: ' + escapeHtml(e.message) + '</p>';
+    }
+  }
+  const step = (d) => {
+    const j = idx + d;
+    if (j < 0 || j >= org.entries.length) return;
+    idx = j; show();
+  };
+  s.querySelector('#opv-prev').onclick = () => step(-1);
+  s.querySelector('#opv-next').onclick = () => step(1);
+  const keys = (e) => {
+    if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
+    else if (e.key === 'Escape') close();
+  };
+  document.addEventListener('keydown', keys);
+  show();
+}
+</script>
   
   
 </body>
