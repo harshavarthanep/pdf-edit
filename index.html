@@ -8664,6 +8664,361 @@ async function previewOrgPage(startIndex) {
   show();
 }
 </script>
+
+<!-- New Code   -->
+
+<!-- ================================================================
+  ZenPDF — "DOT" ELEMENT for the PDF editor        (paste-in patch)
+  =================================================================
+  Adds a filled Dot (•) to the editor toolbar, right next to Check
+  and Cross. It behaves EXACTLY like the checkmark stamp:
+     · click anywhere on a page to place one (tool stays active)
+     · drag it, even onto another page
+     · resize from the corner handle
+     · recolour it with the colour swatches
+     · duplicate (copy handle / Ctrl+D) and delete (× / Delete key)
+     · survives Apply, Save, refresh and re-editing
+     · exports as a real vector filled circle in the PDF
+
+  Size on placement follows the stroke/brush slider (thicker = bigger),
+  and can be resized afterwards like any other shape.
+
+  INSTALL — one paste:
+    Paste this <script> block at the very END of index.html, right
+    before </body>, AFTER all your existing patches.
+================================================================ -->
+<script>
+'use strict';
+
+/* ── 1) draw the dot: a filled circle that fills its box ───────── */
+const _shapeSvgMarkup_dot = shapeSvgMarkup;
+shapeSvgMarkup = function (kind, w, h, color, stroke, dir) {
+  if (kind === 'dot') {
+    w = Math.max(2, w); h = Math.max(2, h);
+    const r = Math.max(0.5, Math.min(w, h) / 2);
+    return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">` +
+           `<circle cx="${w / 2}" cy="${h / 2}" r="${r}" fill="${color}"/></svg>`;
+  }
+  return _shapeSvgMarkup_dot(kind, w, h, color, stroke, dir);
+};
+
+/* ── 2) place one — same pattern as the check / cross stamps ───── */
+function edStampDot(p, x, y) {
+  const s = Math.max(6, (parseFloat(ed.stroke) || 3.5) * 3.5);
+  const obj = edCreateShape(p, 'dot', x - s / 2, y - s / 2, s, s, 1, ed.color, ed.stroke);
+  edSelect(obj);
+  return obj;
+}
+
+/* the page's own pointer handler only knows check/cross, so the dot is
+   handled one level up (capture phase on the page holder) and stopped
+   there — no existing editor code is modified */
+const _bindEditorEvents_dot = bindEditorEvents;
+bindEditorEvents = function (p) {
+  p.holder.addEventListener('pointerdown', (e) => {
+    if (ed.tool !== 'dot' || e.target !== p.anno) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const r = p.anno.getBoundingClientRect();
+    edStampDot(p,
+      (e.clientX - r.left) * (p.anno.width / r.width),
+      (e.clientY - r.top) * (p.anno.height / r.height));
+  }, true);
+  return _bindEditorEvents_dot(p);
+};
+
+/* ── 3) toolbar button, next to Cross ──────────────────────────── */
+try {
+  const crossBtn = document.querySelector('#editor-bar .tool-btn[data-tool="cross"]');
+  if (crossBtn && !document.querySelector('#editor-bar .tool-btn[data-tool="dot"]')) {
+    crossBtn.insertAdjacentHTML('afterend',
+      `<button class="tool-btn" data-tool="dot"
+         data-tip="Dot — movable object: drag, resize, recolour, duplicate, delete. Size follows the stroke slider."
+         onclick="setEdTool('dot')"><i class="fas fa-circle" style="font-size:.62rem"></i><span class="tl">Dot</span></button>`);
+    const b = document.querySelector('#editor-bar .tool-btn[data-tool="dot"]');
+    if (b) b.title = b.dataset.tip;
+  }
+} catch (e) {}
+
+/* ── 4) cursor + touch behaviour, and keep the colour/size controls
+       visible in compact mode while the Dot tool is active ─────── */
+const _setEdTool_dot = setEdTool;
+setEdTool = function (t) {
+  _setEdTool_dot(t);
+  if (t !== 'dot') return;
+  document.querySelectorAll('.page-holder canvas.anno').forEach(c => {
+    c.style.cursor = 'copy';
+    c.style.touchAction = 'pan-y pinch-zoom';
+  });
+  const bar = $('editor-bar');
+  if (bar && bar.classList.contains('collapsed')) {
+    const rows = bar.querySelectorAll('.bar-row');
+    if (rows.length > 1) {
+      const fmtRow = rows[1];
+      [fmtRow.children[1], fmtRow.children[2]].forEach(g => {   // colour + stroke
+        if (g) g.style.setProperty('display', 'flex', 'important');
+      });
+      fmtRow.style.setProperty('display', 'flex', 'important');
+      bar.classList.add('show-fmt');
+    }
+  }
+};
+
+/* ── 5) export: dots become real vector filled circles ──────────
+   The dots are lifted out before the normal export runs (which only
+   knows the original five shapes), then painted back in a second
+   pass. Everything else in the export is untouched. */
+let _dotDetached = [];
+
+const _buildEditedPdfBytes_dot = buildEditedPdfBytes;
+buildEditedPdfBytes = async function () {
+  _dotDetached = [];
+  for (const p of ed.pages) {
+    const dots = Array.from(p.shapes).filter(o => o.dataset.shape === 'dot');
+    if (!dots.length) continue;
+    dots.forEach(o => p.shapes.delete(o));
+    _dotDetached.push({ p, dots });
+  }
+  let bytes;
+  try {
+    bytes = await _buildEditedPdfBytes_dot();
+  } finally {
+    _dotDetached.forEach(({ p, dots }) => dots.forEach(o => p.shapes.add(o)));
+  }
+  const detached = _dotDetached;
+  _dotDetached = [];
+  if (!detached.length) return bytes;
+
+  const doc = await PDFDocument.load(bytes);
+  const pages = doc.getPages();
+  for (const { p, dots } of detached) {
+    const page = pages[p.index];
+    if (!page) continue;
+    const { width: pw, height: ph } = page.getSize();
+    const sx = pw / p.w, sy = ph / p.h;
+    for (const obj of dots) {
+      const W = (parseFloat(obj.style.width) || obj.getBoundingClientRect().width) * sx;
+      const H = (parseFloat(obj.style.height) || obj.getBoundingClientRect().height) * sy;
+      const X = parseFloat(obj.style.left) * sx;
+      const Ytop = ph - parseFloat(obj.style.top) * sy;
+      const c = hexToRgb01(obj.dataset.color || '#1d1d1f');
+      const r = Math.max(0.4, Math.min(W, H) / 2);
+      page.drawEllipse({ x: X + W / 2, y: Ytop - H / 2, xScale: r, yScale: r,
+        color: rgb(c[0], c[1], c[2]) });
+    }
+  }
+  return doc.save();
+};
+
+/* the 4-second autosave must never snapshot while the dots are lifted
+   out for export — otherwise a refresh could lose them */
+const _edSerializeState_dot = edSerializeState;
+edSerializeState = function () {
+  if (!_dotDetached.length) return _edSerializeState_dot();
+  _dotDetached.forEach(({ p, dots }) => dots.forEach(o => p.shapes.add(o)));
+  try { return _edSerializeState_dot(); }
+  finally { _dotDetached.forEach(({ p, dots }) => dots.forEach(o => p.shapes.delete(o))); }
+};
+
+/* ── 6) mention it in the editor help sheet ─────────────────────── */
+try {
+  const steps = HELP.edit.s;
+  const at = steps.findIndex(s => /Ticks/i.test(s[0]));
+  steps.splice(at < 0 ? steps.length : at + 1, 0, ['Dots',
+    'The <b>Dot</b> stamp drops a filled circle as a movable object — click to place, then drag, resize from the corner, recolour, duplicate or delete it just like a tick. Its size follows the stroke-width slider.',
+    'Example: set a small stroke, dot every checkbox on a form, then drag a copy wherever you need another.']);
+} catch (e) {}
+</script>
+
+<!-- New Code   -->
+
+<!-- ================================================================
+  ZenPDF — INSTALLABLE APP (PWA) + install popup   (paste-in patch)
+  =================================================================
+  THIS PATCH IS PART OF A 6-FILE DROP. Upload these to the SAME
+  folder as index.html in your GitHub Pages repo:
+        sw.js
+        manifest.webmanifest
+        zenpdf-icon-192.png
+        zenpdf-icon-512.png
+        zenpdf-icon-maskable-512.png
+        zenpdf-apple-touch-icon.png
+  …then paste this block at the very END of index.html, right
+  before </body>, AFTER all your existing patches.
+
+  BEHAVIOUR (exactly as requested)
+    · A quiet card slides up ~3 s after load offering to install.
+    · "Not now" / × dismisses it for this visit only — it comes
+      back on the next refresh (nothing is stored).
+    · Once installed the card never appears again: Chrome stops
+      firing the install event, and the app also detects that it
+      is running as an installed app.
+    · Uninstall the app and the card returns on the next refresh —
+      automatically, because the browser starts offering it again.
+    · iPhone/iPad get an Add-to-Home-Screen version of the card
+      (Safari has no install button), hidden once installed.
+    · The service worker makes the app load instantly and work
+      offline. Page HTML is always fetched network-first, so every
+      future patch you deploy reaches users immediately — no
+      stale-version risk.
+================================================================ -->
+
+<style>
+#pwa-card{
+  position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));
+  transform:translateX(-50%) translateY(140%);
+  z-index:480;width:min(430px,calc(100vw - 24px));
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-lg);padding:14px 16px;
+  display:flex;align-items:center;gap:13px;
+  transition:transform .45s var(--ease),opacity .3s var(--ease);opacity:0;
+}
+#pwa-card.show{transform:translateX(-50%) translateY(0);opacity:1}
+#pwa-card img{width:44px;height:44px;border-radius:12px;flex-shrink:0;box-shadow:var(--shadow-sm)}
+#pwa-card .pw-txt{flex:1;min-width:0}
+#pwa-card .pw-txt b{font-size:.88rem;font-weight:700;display:block;letter-spacing:-.01em}
+#pwa-card .pw-txt span{display:block;font-size:.74rem;color:var(--muted);margin-top:2px;line-height:1.4}
+#pwa-card .pw-actions{display:flex;align-items:center;gap:7px;flex-shrink:0}
+#pwa-card .pw-close{
+  position:absolute;top:6px;right:8px;width:26px;height:26px;border:none;background:transparent;
+  color:var(--faint);cursor:pointer;border-radius:8px;font-size:.72rem;
+}
+#pwa-card .pw-close:hover{background:var(--hover);color:var(--ink)}
+@media(max-width:520px){
+  #pwa-card{flex-wrap:wrap;padding:14px}
+  #pwa-card .pw-actions{width:100%;justify-content:flex-end}
+}
+</style>
+
+<script>
+'use strict';
+(function () {
+  /* ── 1) tell the browser this is an app ─────────────────────── */
+  try {
+    if (!document.querySelector('link[rel="manifest"]')) {
+      const l = document.createElement('link');
+      l.rel = 'manifest'; l.href = './manifest.webmanifest';
+      document.head.appendChild(l);
+    }
+    if (!document.querySelector('meta[name="theme-color"]')) {
+      const m = document.createElement('meta');
+      m.name = 'theme-color';
+      m.content = document.documentElement.dataset.theme === 'dark' ? '#101012' : '#1d1d1f';
+      document.head.appendChild(m);
+    }
+    if (!document.querySelector('link[rel="apple-touch-icon"]')) {
+      const a = document.createElement('link');
+      a.rel = 'apple-touch-icon'; a.href = './zenpdf-apple-touch-icon.png';
+      document.head.appendChild(a);
+    }
+    const cap = document.createElement('meta');
+    cap.name = 'apple-mobile-web-app-capable'; cap.content = 'yes';
+    document.head.appendChild(cap);
+    const ttl = document.createElement('meta');
+    ttl.name = 'apple-mobile-web-app-title'; ttl.content = 'ZenPDF';
+    document.head.appendChild(ttl);
+  } catch (e) {}
+
+  /* ── 2) service worker — offline + instant loads ────────────── */
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js')
+        .then(r => console.info('[ZenPDF] offline support active', r.scope))
+        .catch(e => console.warn('[ZenPDF] service worker not registered (is sw.js uploaded next to index.html?)', e));
+    });
+  }
+
+  /* ── 3) the install card ────────────────────────────────────── */
+  const isStandalone = () =>
+    (window.matchMedia && matchMedia('(display-mode: standalone)').matches) ||
+    window.navigator.standalone === true;
+
+  let deferred = null;
+  let card = null;
+
+  function buildCard(mode) {
+    if (card || isStandalone()) return;
+    card = document.createElement('div');
+    card.id = 'pwa-card';
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-label', 'Install ZenPDF Studio');
+    const isIos = mode === 'ios';
+    card.innerHTML = `
+      <button class="pw-close" title="Not now" aria-label="Dismiss"><i class="fas fa-xmark"></i></button>
+      <img src="./zenpdf-icon-192.png" alt="" onerror="this.style.display='none'">
+      <div class="pw-txt">
+        <b>Install ZenPDF Studio</b>
+        <span>${isIos
+          ? 'Tap <i class="fas fa-arrow-up-from-bracket"></i> Share, then <b>Add to Home Screen</b> — opens like an app and works offline.'
+          : 'Opens in its own window, works offline, no app store. Your files still never leave your device.'}</span>
+      </div>
+      ${isIos ? '' : `<div class="pw-actions">
+        <button class="chip-btn" id="pw-later">Not now</button>
+        <button class="chip-btn solid" id="pw-go"><i class="fas fa-download"></i> Install</button>
+      </div>`}`;
+    document.body.appendChild(card);
+    requestAnimationFrame(() => card.classList.add('show'));
+
+    const hide = () => {
+      if (!card) return;
+      card.classList.remove('show');
+      const c = card; card = null;
+      setTimeout(() => c.remove(), 450);
+    };
+    card.querySelector('.pw-close').onclick = hide;
+    const later = card.querySelector('#pw-later');
+    if (later) later.onclick = hide;
+    const go = card.querySelector('#pw-go');
+    if (go) go.onclick = async () => {
+      if (!deferred) { hide(); return; }
+      hide();
+      try {
+        deferred.prompt();
+        const { outcome } = await deferred.userChoice;
+        if (outcome !== 'accepted') {
+          toast('No problem — you can install any time from the browser menu', 'ok', 3200);
+        }
+      } catch (e) { console.warn('[ZenPDF] install prompt failed', e); }
+      deferred = null;   // a prompt can only be used once
+    };
+  }
+
+  /* Chrome / Edge / Samsung / Android — this event ONLY fires when the
+     app is installable, i.e. never once it is installed, and again as
+     soon as it is uninstalled. That is exactly the requested behaviour,
+     so nothing needs to be remembered between visits. */
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferred = e;
+    setTimeout(() => buildCard('prompt'), 3000);
+  });
+
+  window.addEventListener('appinstalled', () => {
+    deferred = null;
+    if (card) { card.classList.remove('show'); const c = card; card = null; setTimeout(() => c.remove(), 450); }
+    try { toast('ZenPDF installed — look for it with your other apps', 'ok', 3600); } catch (e) {}
+  });
+
+  /* iOS / iPadOS Safari has no install event — show the how-to card
+     instead, and never when the app is already on the home screen */
+  const ua = navigator.userAgent || '';
+  const iOS = /iPad|iPhone|iPod/.test(ua) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (iOS && /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS/.test(ua) && !isStandalone()) {
+    window.addEventListener('load', () => setTimeout(() => buildCard('ios'), 3200));
+  }
+
+  /* keep the browser chrome colour in step with the theme toggle */
+  try {
+    const _applyTheme_pwa = applyTheme;
+    applyTheme = function (t) {
+      _applyTheme_pwa(t);
+      const m = document.querySelector('meta[name="theme-color"]');
+      if (m) m.content = t === 'dark' ? '#101012' : '#1d1d1f';
+    };
+  } catch (e) {}
+})();
+</script>
   
   
 </body>
