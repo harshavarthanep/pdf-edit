@@ -11,247 +11,6 @@
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
 
 <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
-<script>
-/* ZP-FIX v2 GEOMETRY CORE */
-/* =========================================================================
-   ZenPDF geometry core - rotation & CropBox aware stamping.
-
-   Everything the editor draws is measured in "editor css px" against the
-   pdf.js viewport, which already applies /Rotate and the CropBox.  pdf-lib
-   draws in raw, unrotated MediaBox user space.  These helpers bridge the two
-   by pushing a single transformation matrix, so page.drawText/drawImage/...
-   can keep using simple top-left-ish coordinates on ANY page.
-
-   zpBeginPage(page, pageState) -> { Dw, Dh, k, rot }
-       Dw,Dh : the page size AS DISPLAYED, in points
-       k     : editor css px -> points  (uniform: one factor for both axes)
-   ...draw...
-   zpEndPage(page)
-   ========================================================================= */
-(function () {
-  'use strict';
-  if (window.zpPageGeom) return;                 // already installed
-  var L = function () { return window.PDFLib; };
-
-  /* /Rotate may legally be any multiple of 90, and may be negative or
-     absurd (720, -90, 45 from a broken generator). Normalise hard. */
-  function zpNormRot(a) {
-    a = Math.round((Number(a) || 0) / 90) * 90;
-    return ((a % 360) + 360) % 360;
-  }
-
-  /* The visible box is CropBox INTERSECTED with MediaBox (PDF 32000-1 14.11.2).
-     A CropBox that is missing, degenerate or entirely outside the MediaBox is
-     ignored - that is what every real viewer does. */
-  function zpPageGeom(page) {
-    var mb = page.getMediaBox();
-    var cb = null;
-    try { cb = page.getCropBox(); } catch (e) { cb = null; }
-
-    var x1 = mb.x, y1 = mb.y, x2 = mb.x + mb.width, y2 = mb.y + mb.height;
-    if (cb && isFinite(cb.x) && isFinite(cb.y) &&
-        isFinite(cb.width) && isFinite(cb.height) &&
-        cb.width > 0 && cb.height > 0) {
-      x1 = Math.max(x1, cb.x);
-      y1 = Math.max(y1, cb.y);
-      x2 = Math.min(x2, cb.x + cb.width);
-      y2 = Math.min(y2, cb.y + cb.height);
-    }
-    if (!(x2 - x1 > 1) || !(y2 - y1 > 1)) {      // degenerate -> fall back
-      x1 = mb.x; y1 = mb.y; x2 = mb.x + mb.width; y2 = mb.y + mb.height;
-    }
-
-    var bw = x2 - x1, bh = y2 - y1;
-    var rot = zpNormRot(page.getRotation().angle);
-    var swap = (rot === 90 || rot === 270);
-
-    /* Maps DISPLAY space (origin = bottom-left of the page as shown, y up,
-       units = pt) onto unrotated PDF user space. Verified against pdfium for
-       all four rotations x {CropBox, no CropBox} x {offset MediaBox, origin}. */
-    var ctm = rot === 0   ? [ 1,  0,  0,  1, x1, y1]
-            : rot === 90  ? [ 0,  1, -1,  0, x2, y1]
-            : rot === 180 ? [-1,  0,  0, -1, x2, y2]
-            : /* 270 */     [ 0, -1,  1,  0, x1, y2];
-
-    return {
-      Dw: swap ? bh : bw,
-      Dh: swap ? bw : bh,
-      rot: rot, ctm: ctm,
-      box: { x1: x1, y1: y1, x2: x2, y2: y2 }
-    };
-  }
-
-  /* Some PDFs ship an unbalanced content stream (more `q` than `Q`, a stray
-     `cm`, an unclosed clip). Anything we append then inherits that leftover
-     state and lands somewhere unpredictable. Wrapping the ORIGINAL content in
-     its own q/Q pair isolates it, so our overlay always starts from a clean
-     identity CTM. Cheap insurance; runs once per page. */
-  function zpArmor(page) {
-    if (page.__zpArmored) return true;
-    page.__zpArmored = true;
-    try {
-      var lib = L();
-      var PDFName = lib.PDFName, PDFArray = lib.PDFArray;
-      var ctx = page.node.context;
-      var K = PDFName.of('Contents');
-      var raw = page.node.get(K);
-      if (!raw) return true;                       // empty page, nothing to guard
-      var resolved = ctx.lookup(raw);
-      var mk = function (s) { return ctx.register(ctx.stream(s)); };
-      var arr = ctx.obj([]);
-      arr.push(mk('q\n'));
-      if (resolved instanceof PDFArray) {
-        for (var i = 0; i < resolved.size(); i++) arr.push(resolved.get(i));
-      } else {
-        arr.push(raw);
-      }
-      arr.push(mk('\nQ\n'));
-      page.node.set(K, arr);
-      return true;
-    } catch (e) {
-      /* Never let hardening break an export - worst case we are exactly as
-         correct as before. */
-      if (window.console) console.warn('[ZenPDF] content-stream guard skipped:', e && e.message);
-      return false;
-    }
-  }
-
-  function zpBeginPage(page, p) {
-    var g = zpPageGeom(page);
-    zpArmor(page);
-    var lib = L();
-    page.pushOperators(
-      lib.pushGraphicsState(),
-      lib.concatTransformationMatrix.apply(null, g.ctm)
-    );
-    page.__zpOpen = (page.__zpOpen || 0) + 1;
-
-    /* editor css px -> points. Because rotation is handled by the matrix,
-       both axes share ONE factor; averaging guards against a 1px rounding
-       difference in the canvas size. */
-    var k = 1;
-    if (p && p.w > 0 && p.h > 0) k = (g.Dw / p.w + g.Dh / p.h) / 2;
-    return { Dw: g.Dw, Dh: g.Dh, k: k, rot: g.rot, ctm: g.ctm };
-  }
-
-  function zpEndPage(page) {
-    if (!page || !page.__zpOpen) return;
-    page.pushOperators(L().popGraphicsState());
-    page.__zpOpen--;
-  }
-
-  /* ---- text encoding ---------------------------------------------------
-     The 14 standard PDF fonts speak WinAnsi. The old winAnsiSafe() flattened
-     curly quotes to ', em dashes to "--" and everything non-Latin to "?".
-     WinAnsi actually DOES carry the smart-quote/dash/euro block, so keep
-     those; anything genuinely outside it gets drawn as a raster instead of
-     silently becoming "?". */
-  var ZP_WINANSI_EXTRA =
-    '€‚ƒ„…†‡ˆ‰Š‹Œ' +
-    'Ž‘’“”•–—˜™š›' +
-    'œžŸ';
-
-  function zpIsWinAnsi(ch) {
-    var c = ch.codePointAt(0);
-    return (c >= 0x20 && c <= 0x7E) || (c >= 0xA0 && c <= 0xFF) ||
-           c === 0x0A || c === 0x0D || c === 0x09 ||
-           ZP_WINANSI_EXTRA.indexOf(ch) >= 0;
-  }
-  function zpNeedsRaster(s) {
-    if (!s) return false;
-    for (var i = 0; i < s.length; i++) {
-      var ch = s.charAt(i);
-      var c = s.codePointAt(i);
-      if (c > 0xFFFF) { i++; return true; }        // astral: emoji etc.
-      if (!zpIsWinAnsi(ch)) return true;
-    }
-    return false;
-  }
-
-  /* Draw a text object exactly as the browser lays it out, at 4x, and hand
-     back a PNG plus its box in editor css px. Used only for text the standard
-     fonts cannot encode, so ordinary text stays real, selectable PDF text. */
-  function zpRasterText(obj, t, p) {
-    try {
-      var hr = p.holder.getBoundingClientRect();
-      var k2 = hr.width > 0 ? (p.w / hr.width) : 1;   // visual px -> editor css px
-      var r = t.getBoundingClientRect();
-      var w = r.width * k2, h = r.height * k2;
-      if (!(w > 0) || !(h > 0)) return null;
-
-      var S = 4;
-      var cv = document.createElement('canvas');
-      cv.width = Math.max(1, Math.round(w * S));
-      cv.height = Math.max(1, Math.round(h * S));
-      var c = cv.getContext('2d');
-      c.scale(S, S);
-
-      var cs = getComputedStyle(t);
-      var fs = parseFloat(cs.fontSize) || 16;
-      var lh = parseFloat(cs.lineHeight) || fs * 1.25;
-      c.font = [cs.fontStyle, cs.fontWeight, fs + 'px', cs.fontFamily].join(' ');
-      c.fillStyle = cs.color || '#000';
-      c.textBaseline = 'alphabetic';
-
-      var padL = parseFloat(cs.paddingLeft) || 0;
-      var padR = parseFloat(cs.paddingRight) || 0;
-      var padT = parseFloat(cs.paddingTop) || 0;
-      var innerW = w - padL - padR;
-      var align = cs.textAlign || 'left';
-      var underline = (cs.textDecorationLine || cs.textDecoration || '').indexOf('underline') >= 0;
-
-      t.innerText.split('\n').forEach(function (ln, i) {
-        var tw = c.measureText(ln).width;
-        var x = padL;
-        if (align === 'center') x = padL + (innerW - tw) / 2;
-        else if (align === 'right') x = padL + innerW - tw;
-        var y = padT + lh * i + fs * 0.82;
-        c.fillText(ln, x, y);
-        if (underline && ln.trim()) c.fillRect(x, y + fs * 0.12, tw, Math.max(0.6, fs / 16));
-      });
-
-      return {
-        dataUrl: cv.toDataURL('image/png'),
-        x: (r.left - hr.left) * k2,
-        y: (r.top - hr.top) * k2,
-        w: w, h: h
-      };
-    } catch (e) { return null; }
-  }
-
-  /* Measure a DOM object against its page holder. Immune to browser zoom,
-     borders, padding and non-proportional resizing - the old code divided
-     bounding rects by a holder ratio and then re-derived height from the
-     image's natural aspect, which drifted whenever either changed. */
-  function zpMeasure(el, p) {
-    try {
-      var hr = p.holder.getBoundingClientRect();
-      var k2 = hr.width > 0 ? (p.w / hr.width) : 1;
-      var r = el.getBoundingClientRect();
-      var cs = getComputedStyle(el);
-      var bl = parseFloat(cs.borderLeftWidth) || 0;
-      var bt = parseFloat(cs.borderTopWidth) || 0;
-      var br = parseFloat(cs.borderRightWidth) || 0;
-      var bb = parseFloat(cs.borderBottomWidth) || 0;
-      var w = r.width * k2 - bl - br;
-      var h = r.height * k2 - bt - bb;
-      if (!(w > 0) || !(h > 0)) return null;
-      return { x: (r.left - hr.left) * k2 + bl, y: (r.top - hr.top) * k2 + bt, w: w, h: h };
-    } catch (e) { return null; }
-  }
-
-  window.zpNormRot = zpNormRot;
-  window.zpPageGeom = zpPageGeom;
-  window.zpBeginPage = zpBeginPage;
-  window.zpEndPage = zpEndPage;
-  window.zpArmor = zpArmor;
-  window.zpNeedsRaster = zpNeedsRaster;
-  window.zpRasterText = zpRasterText;
-  window.zpMeasure = zpMeasure;
-  window.zpIsWinAnsi = zpIsWinAnsi;
-})();
-</script>
-
 <script src="https://unpkg.com/downloadjs@1.4.7/download.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -1181,188 +940,6 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 </style>  
   
   
-
-<style>
-/* ZP-FIX v2 UI LAYER */
-/* =========================================================================
-   ZenPDF professional layout layer.
-   Loaded last so it wins on ties, but every rule is deliberately scoped -
-   nothing here changes behaviour, only presentation and ergonomics.
-   ========================================================================= */
-
-/* ---- 1. never let the shell scroll sideways -------------------------- */
-html, body { max-width: 100%; overflow-x: hidden; }
-body { text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
-*, *::before, *::after { box-sizing: border-box; }
-
-/* ---- 2. respect notches, home bars and hinge cutouts ------------------ */
-header { padding-left: max(12px, env(safe-area-inset-left));
-         padding-right: max(12px, env(safe-area-inset-right)); }
-main   { padding-left: max(12px, env(safe-area-inset-left));
-         padding-right: max(12px, env(safe-area-inset-right)); }
-
-/* ---- 3. real focus rings (keyboard only) ----------------------------- */
-:where(button, a, input, select, textarea, [tabindex]):focus-visible {
-  outline: 2px solid var(--sel, #0a84ff);
-  outline-offset: 2px;
-  border-radius: 6px;
-}
-:where(button, a, input, select, textarea):focus:not(:focus-visible) { outline: none; }
-
-/* ---- 4. the document canvas — the part that must feel like a reader --- */
-.editor-pages {
-  /* a calm neutral trough behind the paper, exactly like Acrobat/iLovePDF */
-  background: var(--reader-bg, #55555a);
-  border-radius: var(--radius-md, 14px);
-  padding: 26px 16px 48px;
-  scroll-padding-top: 96px;
-  overscroll-behavior-x: contain;
-}
-html[data-theme="dark"] .editor-pages { background: #48484d; }
-.page-holder {
-  box-shadow: 0 2px 6px rgba(0,0,0,.24), 0 12px 32px rgba(0,0,0,.22);
-  border-radius: 3px;
-  outline: 1px solid rgba(0,0,0,.10);
-  outline-offset: -1px;
-  transition: box-shadow .18s var(--ease, ease);
-}
-.page-holder:hover { box-shadow: 0 3px 8px rgba(0,0,0,.28), 0 16px 40px rgba(0,0,0,.26); }
-.page-num-badge {
-  backdrop-filter: saturate(1.6) blur(8px);
-  -webkit-backdrop-filter: saturate(1.6) blur(8px);
-  background: rgba(20,20,22,.72);
-  letter-spacing: .02em;
-}
-
-/* ---- 5. toolbar: sticky, scrollable, never clipped ------------------- */
-.editor-bar {
-  position: sticky;
-  z-index: 30;
-  backdrop-filter: saturate(1.8) blur(20px);
-  -webkit-backdrop-filter: saturate(1.8) blur(20px);
-  border-bottom: 1px solid var(--line, #e4e4e8);
-}
-.bar-row { scroll-behavior: smooth; }
-.bar-row::-webkit-scrollbar { height: 0; }
-
-/* ---- 6. touch ergonomics: 44px minimum on any coarse pointer --------- */
-@media (pointer: coarse) {
-  .tool-btn, .chip-btn, .icon-btn, .color-dot, .crumb-btn,
-  .back-btn, .sheet-opt, .org-thumb {
-    min-height: 44px;
-  }
-  .tool-btn, .icon-btn, .color-dot, .chip-btn { min-width: 44px; }
-  /* form controls in the toolbar were 16-32px tall - unusable with a thumb */
-  .bar-select, .bar-num, .bar-color { min-height: 40px; }
-  .bar-color { min-width: 40px; }
-  .bar-range { height: 40px; }                  /* the track stays thin... */
-  .bar-range::-webkit-slider-thumb { width: 26px; height: 26px; }
-  .bar-range::-moz-range-thumb { width: 26px; height: 26px; }
-  .ov-resize { width: 22px; height: 22px; }     /* draggable with a thumb */
-  .ov-del, .ov-dup { min-width: 32px; min-height: 32px; }
-}
-
-/* ---- 7. FOLDABLE CLOSED / very narrow  (<= 360px) -------------------- */
-@media (max-width: 360px) {
-  :root { --radius-lg: 14px; --radius-md: 11px; }
-  header { padding: 8px 10px; }
-  main { padding-left: 8px; padding-right: 8px; }
-  .editor-pages { padding: 14px 6px 36px; border-radius: 10px; }
-  .action-card { padding: 14px 12px; }
-  .action-card b { font-size: .92rem; }
-  .action-card p { font-size: .74rem; }
-  .tool-btn .tl { display: none; }              /* icons only - room is scarce */
-  .sheet { padding: 16px 14px calc(16px + env(safe-area-inset-bottom)); }
-  .primary-btn { width: 100%; }
-}
-
-/* ---- 8. PHONE  (361 - 480px) ---------------------------------------- */
-@media (min-width: 361px) and (max-width: 480px) {
-  .editor-pages { padding: 16px 8px 40px; }
-  .primary-btn { width: 100%; }
-}
-
-/* ---- 9. LARGE PHONE / small tablet portrait (481 - 640px) ----------- */
-@media (max-width: 640px) {
-  .editor-pages { scroll-padding-top: 120px; }
-  /* a bottom-anchored toolbar is reachable one-handed */
-  .editor-bar.dock-bottom {
-    position: fixed; left: 0; right: 0; bottom: 0; top: auto;
-    padding-bottom: calc(7px + env(safe-area-inset-bottom));
-    border-top: 1px solid var(--line, #e4e4e8);
-    border-bottom: none;
-    box-shadow: 0 -6px 22px rgba(0,0,0,.13);
-  }
-}
-
-/* ---- 10. TABLET  (641 - 1024px) ------------------------------------- */
-@media (min-width: 641px) and (max-width: 1024px) {
-  .editor-pages { padding: 22px 14px 44px; }
-  .actions-grid, .tool-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
-  }
-}
-
-/* ---- 11. LAPTOP  (1025 - 1440px) ------------------------------------ */
-@media (min-width: 1025px) and (max-width: 1440px) {
-  main { max-width: 1120px; margin-inline: auto; }
-  .actions-grid, .tool-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 14px;
-  }
-}
-
-/* ---- 12. DESKTOP / wide (>= 1441px) --------------------------------- */
-@media (min-width: 1441px) {
-  main { max-width: 1320px; margin-inline: auto; }
-  .actions-grid, .tool-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 16px;
-  }
-  .editor-pages { padding: 32px 24px 56px; }
-}
-
-/* ---- 13. FOLDABLE UNFOLDED / dual screen ---------------------------- */
-@media (horizontal-viewport-segments: 2) {
-  .editor-pages { padding-inline: 8px; }
-  main { max-width: none; }
-}
-
-/* ---- 14. LANDSCAPE PHONE: vertical space is the scarce axis ---------- */
-@media (max-height: 460px) and (orientation: landscape) {
-  header { padding-top: 5px; padding-bottom: 5px; }
-  .editor-bar { padding-top: 4px; padding-bottom: 4px; }
-  .tool-btn .tl { display: none; }
-  .editor-pages { padding-top: 10px; }
-}
-
-/* ---- 15. accessibility & system preferences ------------------------- */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: .001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: .001ms !important;
-    scroll-behavior: auto !important;
-  }
-}
-@media (forced-colors: active) {
-  .tool-btn, .chip-btn, .action-card, .page-holder { border: 1px solid CanvasText; }
-  .ov-obj.selected .ov-text, .ov-obj.selected img { outline: 2px solid Highlight; }
-}
-
-/* ---- 16. print: the page, nothing else ------------------------------ */
-@media print {
-  header, .editor-bar, .page-num-badge, .ov-del, .ov-dup, .ov-resize,
-  #pwa-card, .toast, .sheet, .back-btn { display: none !important; }
-  .editor-pages { background: none; padding: 0; }
-  .page-holder { box-shadow: none; outline: none; break-inside: avoid; page-break-inside: avoid; }
-}
-</style>
-
 </head>
 <body>
 
@@ -2806,27 +2383,18 @@ async function procWatermark(btn) {
       if (mode === 'image') {
         const img = wmIsPng ? await doc.embedPng(wmImageBytes) : await doc.embedJpg(wmImageBytes);
         pages.forEach(page => {
-          /* ZP-FIX F3: on a rotated page getSize() reports the landscape
-             MediaBox, so the logo was fitted to the wrong axis and came out
-             oversized, clipped and lying on its side. */
-          const _zg = zpBeginPage(page, null);
-          const width = _zg.Dw, height = _zg.Dh;
+          const { width, height } = page.getSize();
           let w = Math.min(width * 0.5 * scalePct, width * 0.92);
           let h = w * (img.height / img.width);
           if (h > height * 0.8) { h = height * 0.8; w = h * (img.width / img.height); }
           page.drawImage(img, {
             x: (width - w) / 2, y: (height - h) / 2, width: w, height: h, opacity,
           });
-          zpEndPage(page);   /* ZP-FIX F3 */
         });
       } else {
         const font = await doc.embedFont(StandardFonts.HelveticaBold);
         pages.forEach(page => {
-          /* ZP-FIX F4: the 45 degree diagonal was measured on the unrotated
-             box, so on a rotated page it ran across the wrong diagonal and
-             the auto-shrink used the wrong page width. */
-          const _zg = zpBeginPage(page, null);
-          const width = _zg.Dw, height = _zg.Dh;
+          const { width, height } = page.getSize();
           let size = 50 * scalePct;
           const tw = font.widthOfTextAtSize(wmText, size);
           const diag = Math.sqrt(width * width + height * height) * 0.7;
@@ -2841,7 +2409,6 @@ async function procWatermark(btn) {
             x, y, size, font,
             color: rgb(0.45, 0.45, 0.47), opacity, rotate: degrees(45),
           });
-          zpEndPage(page);   /* ZP-FIX F4 */
         });
       }
       out[`watermarked_${f.name}`] = await doc.save();
@@ -2872,11 +2439,7 @@ async function procPageNumbers(btn) {
     const pages = doc.getPages();
     const total = pages.length;
     pages.forEach((page, i) => {
-      /* ZP-FIX F5: "bottom centre" was the bottom of the UNROTATED box. On a
-         /Rotate 270 page that is the left-hand margin, with the number lying
-         on its side. Display space puts it where the user expects. */
-      const _zg = zpBeginPage(page, null);
-      const width = _zg.Dw, height = _zg.Dh;
+      const { width, height } = page.getSize();
       const label = fmt === 'pn' ? `Page ${start + i} of ${start + total - 1}` : String(start + i);
       const tw = font.widthOfTextAtSize(label, size);
       let x, y;
@@ -2885,7 +2448,6 @@ async function procPageNumbers(btn) {
       else if (pos === 'bl') { x = 36; y = 24; }
       else { x = width - tw - 36; y = height - 30; }
       page.drawText(label, { x, y, size, font, color: rgb(0.25, 0.25, 0.27) });
-      zpEndPage(page);       /* ZP-FIX F5 */
     });
     const bytes = await doc.save();
     busy(btn, false);
@@ -3089,10 +2651,7 @@ async function procRotate(btn) {
   busy(btn, true, 'Rotating…');
   try {
     const doc = await PDFDocument.load(pdfFiles[fi].bytes);
-    /* ZP-FIX F9: /Rotate must be a multiple of 90. Files written by broken
-       generators carry 45, -90 or 720; adding to those produced a page no
-       viewer agrees on. zpNormRot snaps to the nearest legal quarter turn. */
-    doc.getPages().forEach(p => p.setRotation(degrees(zpNormRot(p.getRotation().angle + deg))));
+    doc.getPages().forEach(p => p.setRotation(degrees(((p.getRotation().angle + deg) % 360 + 360) % 360)));
     const bytes = await doc.save();
     updatePdf(fi, bytes);
     busy(btn, false);
@@ -3342,46 +2901,11 @@ async function procImg2Pdf() {
   busy(btn, true, 'Creating…');
   try {
     const doc = await PDFDocument.create();
-    /* ZP-FIX F8: pixel dimensions were used directly as PDF points, so a
-       12 MP phone photo became a 4000 x 3000 pt page - roughly 55 x 41
-       inches, which no printer or viewer handles sensibly. Treat the pixels
-       as 96 DPI (the CSS reference) and cap the result at A3, keeping the
-       aspect ratio. Formats pdf-lib cannot embed natively (WebP, AVIF, HEIC
-       from an iPhone) are re-encoded through a canvas instead of throwing. */
-    const ZP_MAX_PT = 1191;              // A3 long edge, in points
     for (const f of aux.img2pdf) {
-      let img = null;
       const buf = await f.arrayBuffer();
-      const isPng = (f.type || '').includes('png');
-      try {
-        img = isPng ? await doc.embedPng(buf) : await doc.embedJpg(buf);
-      } catch (e) {
-        img = await (async () => {         // transcode anything else to JPEG
-          const url = URL.createObjectURL(f);
-          try {
-            const bmp = await new Promise((res, rej) => {
-              const im = new Image();
-              im.onload = () => res(im);
-              im.onerror = () => rej(new Error('Unsupported image: ' + f.name));
-              im.src = url;
-            });
-            const cv = document.createElement('canvas');
-            cv.width = bmp.naturalWidth || bmp.width;
-            cv.height = bmp.naturalHeight || bmp.height;
-            const cx = cv.getContext('2d');
-            cx.fillStyle = '#ffffff';
-            cx.fillRect(0, 0, cv.width, cv.height);
-            cx.drawImage(bmp, 0, 0);
-            return await doc.embedJpg(cv.toDataURL('image/jpeg', 0.92));
-          } finally { URL.revokeObjectURL(url); }
-        })();
-      }
-      let w = img.width * 0.75, h = img.height * 0.75;   // 96 DPI px -> pt
-      const over = Math.max(w, h) / ZP_MAX_PT;
-      if (over > 1) { w /= over; h /= over; }
-      if (!(w > 0) || !(h > 0)) { w = 612; h = 792; }
-      const page = doc.addPage([w, h]);
-      page.drawImage(img, { x: 0, y: 0, width: w, height: h });
+      const img = f.type.includes('png') ? await doc.embedPng(buf) : await doc.embedJpg(buf);
+      const page = doc.addPage([img.width, img.height]);
+      page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
     }
     const outBytes = await doc.save();
     pdfFiles.push({ name: 'images.pdf', bytes: outBytes, size: outBytes.length });
@@ -3515,12 +3039,7 @@ async function openEditor(preIndex) {
   const wrap = $('editor-pages');
   wrap.innerHTML = '<div class="skel-page"></div><div class="skel-page"></div>';
   ed.pages = []; ed.hasChanges = false; ed.selected = null;
-  ed.strokeLog = []; ed.redoLog = [];
-  /* ZP-FIX F10: the old pdf.js document (and its worker-side page cache) was
-     dropped on the floor on every re-open, so opening a large file a few
-     times in one session grew memory until the tab was killed. */
-  try { if (ed.pdfDoc && ed.pdfDoc.destroy) ed.pdfDoc.destroy(); } catch (e) {}
-  ed.pdfDoc = null;
+  ed.strokeLog = []; ed.redoLog = []; ed.pdfDoc = null;
   setEdTool('select');
 
   try {
@@ -3532,20 +3051,8 @@ async function openEditor(preIndex) {
     ed.pdfDoc = pdf;
     wrap.innerHTML = '';
     const first = await pdf.getPage(1);
-    /* ZP-FIX F11: two bugs in one line.
-         1) clientWidth includes the wrapper's horizontal padding, so the
-            available width was over-estimated and the page ran under the
-            gutter.
-         2) The 0.6 floor beat the fit-to-width calculation, so on a folded
-            phone (280 css px) a Letter page still rendered 367 px wide and
-            had to be scrolled sideways. Measured on a Galaxy Fold profile:
-            page 367 px inside a 264 px column.
-       Subtract the real padding and let the scale go as low as the screen
-       needs; the 1.6 cap and the zoom controls are unchanged. */
-    const _wcs = getComputedStyle(wrap);
-    const _wpad = (parseFloat(_wcs.paddingLeft) || 0) + (parseFloat(_wcs.paddingRight) || 0);
-    const vw = Math.max(160, Math.min((wrap.clientWidth || 900) - _wpad, 900));
-    ed.scale = Math.min(1.6, Math.max(0.2, vw / first.getViewport({ scale: 1 }).width));
+    const vw = Math.min(wrap.clientWidth || 900, 900);
+    ed.scale = Math.min(1.6, Math.max(0.6, vw / first.getViewport({ scale: 1 }).width));
     ed.baseScale = ed.scale;
     $('ed-zoom-label').textContent = '100%';
     /* render at the device pixel ratio so pages are crisp on
@@ -5974,24 +5481,13 @@ async function confirmLeaveEditor() {
 
 /* --- save edited PDF --- */
 function winAnsiSafe(s) {
-  /* ZP-FIX F7: this used to flatten typography the standard PDF fonts can
-     encode perfectly well - curly quotes became straight ones, an em dash
-     became "--", the bullet became a middot and the ellipsis became three
-     periods. Verified against pdf-lib 1.17.1: WinAnsi carries the whole
-     0x80-0x9F block (curly quotes, en/em dash, ellipsis, bullet, trademark,
-     euro, S-caron, Z-caron, OE) plus all of Latin-1, so those now survive
-     the round trip untouched.
-
-     Code points WinAnsi genuinely cannot hold - the rupee sign, Tamil,
-     Devanagari, CJK, emoji - are caught earlier by zpNeedsRaster() and drawn
-     as a 4x raster, so they no longer become a row of "?" either. What is
-     left here is only the last-resort net. */
   return s
-    .replace(/′/g, "'")      // prime -> apostrophe (not in WinAnsi)
-    .replace(/″/g, '"')      // double prime
-    .replace(/−/g, '-')      // minus sign -> hyphen
-    .replace(/ /g, ' ')      // nbsp -> space
-    .replace(/[^\x20-\x7E\xA0-\xFF\n€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ]/g, '?');
+    .replace(/[\u2018\u2019\u201A\u2032]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u2033]/g, '"')
+    .replace(/[\u2013\u2212]/g, '-').replace(/\u2014/g, '--')
+    .replace(/\u2026/g, '...').replace(/\u00a0/g, ' ')
+    .replace(/\u2022/g, '\xb7')
+    .replace(/[^\x20-\x7E\xA0-\xFF\n]/g, '?');
 }
 
 async function buildEditedPdfBytes() {
@@ -6010,15 +5506,8 @@ async function buildEditedPdfBytes() {
 
     for (const p of ed.pages) {
       const page = pages[p.index];
-      /* ZP-FIX F1: page.getSize() is the raw, UNROTATED MediaBox, but every
-         object on screen was measured against pdf.js's viewport, which
-         applies /Rotate and the CropBox. Mixing the two put stamps a quarter
-         turn out and off-page on rotated scans. zpBeginPage() opens a
-         display-space transform instead: pw/ph are now the page AS SHOWN and
-         sx === sy, so nothing is squashed, flipped or displaced. */
-      const _zg = zpBeginPage(page, p);
-      const pw = _zg.Dw, ph = _zg.Dh;
-      const sx = _zg.k, sy = _zg.k;         // editor css px -> display pt
+      const { width: pw, height: ph } = page.getSize();
+      const sx = pw / p.w, sy = ph / p.h;   // css px -> pdf pt
 
       // 1) redactions for edited text — cover the original wording first
       for (const r of p.redacts) {
@@ -6079,27 +5568,7 @@ async function buildEditedPdfBytes() {
       // 4) text objects — real selectable text with font, style, align, underline
       for (const obj of p.texts) {
         const t = obj.querySelector('.ov-text');
-        const _raw = t.innerText;
-        if (!_raw.trim()) continue;
-        /* ZP-FIX F7: the 14 standard PDF fonts are WinAnsi-only, so an
-           accented name, a rupee sign, Tamil, Hindi, CJK or an emoji used to
-           export as a row of "?". Draw those objects at 4x as a raster - the
-           export then looks exactly like the screen. Everything WinAnsi can
-           encode still exports as real, selectable, searchable PDF text. */
-        if (zpNeedsRaster(_raw)) {
-          const _im = zpRasterText(obj, t, p);
-          if (_im) {
-            try {
-              const _png = await doc.embedPng(_im.dataUrl);
-              page.drawImage(_png, {
-                x: _im.x * sx, y: ph - (_im.y + _im.h) * sy,
-                width: _im.w * sx, height: _im.h * sy,
-              });
-              continue;
-            } catch (_e) { /* fall through to the text path */ }
-          }
-        }
-        const content = winAnsiSafe(_raw);
+        const content = winAnsiSafe(t.innerText);
         if (!content.trim()) continue;
         const fam = obj.dataset.font || 'Helvetica';
         const bold = ['700', 'bold', '600', '800'].includes(t.style.fontWeight);
@@ -6155,21 +5624,8 @@ async function buildEditedPdfBytes() {
       for (const obj of p.images) {
         const img = obj.querySelector('img');
         const rect = { l: parseFloat(obj.style.left), t: parseFloat(obj.style.top) };
-        /* ZP-FIX F6: width came from the WRAPPER's bounding rect (which
-           includes the dashed selection border) and height was re-derived
-           from the image's natural aspect ratio. Any border, browser zoom or
-           non-proportional resize therefore shifted the signature vertically,
-           because y is computed from (top + h). Measure the <img> itself,
-           relative to its page holder, and use its real height. */
-        const _zm = zpMeasure(img, p);
-        let w, h;
-        if (_zm) {
-          w = _zm.w; h = _zm.h;
-          rect.l = _zm.x; rect.t = _zm.y;
-        } else {                                  // not laid out - best effort
-          w = parseFloat(obj.style.width) || img.naturalWidth || 1;
-          h = w * ((img.naturalHeight / img.naturalWidth) || 1);
-        }
+        const w = obj.getBoundingClientRect().width / (p.holder.getBoundingClientRect().width / p.w);
+        const h = w * (img.naturalHeight / img.naturalWidth);
         const embedded = (obj.dataset.mime || '').includes('png')
           ? await doc.embedPng(img.src)
           : await doc.embedJpg(img.src);
@@ -6180,8 +5636,6 @@ async function buildEditedPdfBytes() {
           height: h * sy,
         });
       }
-
-      zpEndPage(page);      /* ZP-FIX F1: balance the transform for this page */
     }
 
     return doc.save();
@@ -9340,10 +8794,8 @@ buildEditedPdfBytes = async function () {
   for (const { p, dots } of detached) {
     const page = pages[p.index];
     if (!page) continue;
-    /* ZP-FIX F2: the dot-stamp pass had its own copy of the broken math. */
-    const _zg = zpBeginPage(page, p);
-    const pw = _zg.Dw, ph = _zg.Dh;
-    const sx = _zg.k, sy = _zg.k;
+    const { width: pw, height: ph } = page.getSize();
+    const sx = pw / p.w, sy = ph / p.h;
     for (const obj of dots) {
       const W = (parseFloat(obj.style.width) || obj.getBoundingClientRect().width) * sx;
       const H = (parseFloat(obj.style.height) || obj.getBoundingClientRect().height) * sy;
@@ -9354,7 +8806,6 @@ buildEditedPdfBytes = async function () {
       page.drawEllipse({ x: X + W / 2, y: Ytop - H / 2, xScale: r, yScale: r,
         color: rgb(c[0], c[1], c[2]) });
     }
-    zpEndPage(page);        /* ZP-FIX F2 */
   }
   return doc.save();
 };
@@ -9570,7 +9021,889 @@ try {
 </script>
   
   
+<!-- ZENPDF-GEOMETRY-FIX:BEGIN v1.0.0 -->
+<!-- applied 2026-09-03 20:13:13 | sha256:f92d649c7c02
+     revert with:  python3 apply_zenpdf_fix.py --revert -->
+<script>
+/* ==================================================================
+   ZenPDF — ROTATION & GEOMETRY FIX PACK  v1.0.0
+   ------------------------------------------------------------------
+   PASTE THIS BLOCK AT THE VERY END OF index.html, immediately before
+   </body>, AFTER every existing patch block.
 
-<!-- ZenPDF fix patch v2.1.0 applied 2026-09-03 19:42 -->
+   ROOT CAUSE OF THE ALIGNMENT BUG
+   -------------------------------
+   pdf.js and pdf-lib do not agree on what "the page" is.
+
+     pdf.js   page.getViewport()  -> APPLIES /Rotate.  The Molina file
+                                     reports 612 x 792 (upright).
+     pdf-lib  page.getSize()      -> IGNORES /Rotate.  The same page
+                                     reports 792 x 612 (raw MediaBox).
+
+   The editor placed objects in pdf.js viewport space and stamped them
+   with pdf-lib MediaBox space, so on any page carrying /Rotate 90,
+   180 or 270 the export was:
+       * scaled by the wrong factor on both axes  (792/612 and 612/792)
+       * rotated 90 degrees
+       * pushed off toward the opposite edge
+
+   Every page of the Molina SC contract is  MediaBox [0 0 792 612]
+   with  /Rotate 270  -- which is exactly why that file broke and most
+   others did not.
+
+   THE FIX
+   -------
+   One mapping function, edGeom(), converts a point in visual space
+   (what the user sees and clicks, origin TOP-LEFT) into PDF user
+   space (origin BOTTOM-LEFT, un-rotated), and reports the counter-
+   rotation every drawn primitive needs. Verified identical output for
+   /Rotate 0, 90, 180 and 270, and for non-zero MediaBox/CropBox
+   origins.
+
+   ALSO FIXED HERE
+   ---------------
+     * watermarks landed sideways / off-centre on rotated pages
+     * page numbers landed sideways / off-page on rotated pages
+     * Image -> PDF produced giant pages (pixels used as points) and
+       ignored EXIF orientation
+     * Word -> PDF silently dropped images (tables, floats, EMF/WMF)
+     * encrypted / damaged PDFs failed with an unreadable error
+     * AcroForm appearance regeneration could blank out form fields
+   ================================================================== */
+(function () {
+'use strict';
+
+if (window.__zenGeomFix) return;
+window.__zenGeomFix = '1.0.0';
+
+const LOG = (...a) => { try { console.debug('[zen-geom]', ...a); } catch (e) {} };
+
+/* ------------------------------------------------------------------
+   1. THE CORE MAPPING
+   ------------------------------------------------------------------
+   edGeom(pdfLibPage, p) returns a small object that knows how to turn
+   visual CSS pixels into PDF points on ANY page, rotated or not.
+
+     g.vw / g.vh   visual page size in POINTS (what the user sees)
+     g.k           css px -> pt   (single uniform factor, never skewed)
+     g.rot         degrees of counter-rotation for drawn content
+     g.pt(cx, cy)  visual css px (top-left origin) -> {x, y} user space
+
+   Why a SINGLE scale factor k: the old code used sx and sy computed
+   from mismatched spaces, which squashed text and images even on
+   unrotated pages whose CropBox differed from the MediaBox.
+------------------------------------------------------------------ */
+function edGeom(page, p) {
+  // Prefer the CropBox: that is the box pdf.js actually renders.
+  let box;
+  try { box = page.getCropBox(); } catch (e) { box = null; }
+  if (!box || !box.width || !box.height) {
+    const s = page.getSize();
+    box = { x: 0, y: 0, width: s.width, height: s.height };
+  }
+  const ox = box.x, oy = box.y, mw = box.width, mh = box.height;
+
+  let rot = 0;
+  try { rot = page.getRotation().angle | 0; } catch (e) { rot = 0; }
+  rot = ((rot % 360) + 360) % 360;
+  rot = Math.round(rot / 90) * 90 % 360;   // clamp junk like /Rotate 271
+
+  // visual (post-rotation) size in points
+  const vw = (rot % 180) ? mh : mw;
+  const vh = (rot % 180) ? mw : mh;
+
+  // css px -> pt. p.w/p.h are the pdf.js viewport dims at the current
+  // zoom, and the viewport is uniformly scaled, so one factor is right.
+  const k = p && p.w ? (vw / p.w) : 1;
+
+  /* Fast path: pdf.js can invert its own viewport transform exactly,
+     which also absorbs the CropBox origin and any zoom. Use it when
+     the live viewport is available; fall back to the closed form. */
+  const vp = p && p.viewport && typeof p.viewport.convertToPdfPoint === 'function'
+    ? p.viewport : null;
+
+  function pt(cx, cy) {
+    if (vp) {
+      const q = vp.convertToPdfPoint(cx, cy);
+      return { x: q[0], y: q[1] };
+    }
+    const X = cx * k, Y = cy * k;          // visual points, top-left origin
+    let x, y;
+    if      (rot === 0)   { x = X;        y = mh - Y; }
+    else if (rot === 90)  { x = Y;        y = X;      }
+    else if (rot === 180) { x = mw - X;   y = Y;      }
+    else                  { x = mw - Y;   y = mh - X; }   // 270
+    return { x: x + ox, y: y + oy };
+  }
+
+  return { vw, vh, mw, mh, ox, oy, rot, k, pt,
+           /* anchor helper: visual top-left rect -> pdf-lib draw anchor.
+              pdf-lib rotates about (x,y), which is the primitive's own
+              bottom-left, i.e. the VISUAL bottom-left of the rect. */
+           anchor(cx, cy, cw, ch) { return pt(cx, cy + ch); } };
+}
+window.edGeom = edGeom;
+
+/* Same idea, but for whole-page tools that have no pdf.js page state
+   (watermark, page numbers). Visual space is measured in points. */
+function pageGeom(page) {
+  return edGeom(page, { w: 0, h: 0, viewport: null });
+}
+window.pageGeom = pageGeom;
+
+/* ------------------------------------------------------------------
+   2. SAFE LOAD / SAVE
+------------------------------------------------------------------ */
+async function safeLoad(bytes) {
+  try {
+    return await PDFDocument.load(bytes, {
+      ignoreEncryption: true,     // read-protected files still open
+      updateMetadata: false,      // don't rewrite the producer/date
+      throwOnInvalidObject: false // tolerate lightly damaged xref tables
+    });
+  } catch (e) {
+    const m = String(e && e.message || e);
+    if (/encrypt/i.test(m))
+      throw new Error('This PDF is password-protected. Unlock it first, then try again.');
+    if (/parse|xref|invalid|corrupt/i.test(m))
+      throw new Error('This PDF looks damaged and could not be read. Try "Repair" first.');
+    throw e;
+  }
+}
+async function safeSave(doc) {
+  // Never regenerate AcroForm appearances: on signed or XFA forms that
+  // silently blanks every field.
+  return doc.save({ updateFieldAppearances: false });
+}
+window.safeLoad = safeLoad;
+window.safeSave = safeSave;
+
+/* Extra transliteration so smart typography stops turning into "?".
+   pdf-lib StandardFonts are WinAnsi-only; anything outside that
+   repertoire must be folded down or it is emitted as a literal "?". */
+/* Self-contained: does NOT chain to any earlier winAnsiSafe, so the
+   fold-down is identical no matter what order the patches load in. */
+const _TRANSLIT = [
+  [/[‘’‚′ʼ‵]/g, "'"],
+  [/[“”„″«»]/g, '"'],
+  [/[‐‑‒–―−]/g, '-'],
+  [/—/g, '--'],
+  [/…/g, '...'],
+  [/\u00a0/g, ' '],
+  [/•/g, '·'],
+  [/⁄/g, '/'],
+  [/ﬀ/g, 'ff'], [/ﬁ/g, 'fi'], [/ﬂ/g, 'fl'],
+  [/ﬃ/g, 'ffi'], [/ﬄ/g, 'ffl'],
+  [/[\u2000-\u200a\u202f\u205f\u3000]/g, ' '],
+  [/[\u200b-\u200d\ufeff\u00ad]/g, ''],
+  [/™/g, '(TM)'], [/℅/g, 'c/o'],
+  [/→/g, '->'], [/←/g, '<-'],
+  [/≤/g, '<='], [/≥/g, '>='], [/≠/g, '!='],
+  [/×/g, 'x'], [/″/g, '"'], [/′/g, "'"],
+  [/[☑✓✔✅]/g, 'X'], [/[☐□▫]/g, '[ ]'],
+  [/[●○▪◾]/g, '·'],
+  [/€/g, 'EUR'], [/©/g, '(c)'], [/®/g, '(R)'],
+  [/\r\n?/g, '\n'], [/\t/g, '    '],
+];
+window.winAnsiSafe = function (s) {
+  if (s == null) return '';
+  s = String(s);
+  try { s = s.normalize('NFC'); } catch (e) {}
+  for (var i = 0; i < _TRANSLIT.length; i++) s = s.replace(_TRANSLIT[i][0], _TRANSLIT[i][1]);
+  // anything still outside WinAnsi cannot be encoded by a StandardFont
+  return s.replace(/[^\x20-\x7E\xA0-\xFF\n]/g, '?');
+};
+
+/* ==================================================================
+   3. THE EDITOR EXPORT  — full rotation-aware rewrite
+   ------------------------------------------------------------------
+   This REPLACES buildEditedPdfBytes outright (including the earlier
+   "dot" wrapper, whose behaviour is folded in below as a native shape).
+   ================================================================== */
+window.buildEditedPdfBytes = async function buildEditedPdfBytes() {
+  if (typeof edDeselect === 'function') edDeselect();
+
+  const doc = await safeLoad(ed.srcBytes || pdfFiles[ed.fileIndex].bytes);
+  const pages = doc.getPages();
+  const fontCache = {};
+  const getFont = async (fam, bold, italic) => {
+    const idx = (bold ? 1 : 0) + (italic ? 2 : 0);
+    const key = (FONT_VARIANTS[fam] || FONT_VARIANTS.Helvetica)[idx];
+    if (!fontCache[key]) fontCache[key] = await doc.embedFont(StandardFonts[key]);
+    return fontCache[key];
+  };
+
+  for (const p of ed.pages) {
+    const page = pages[p.index];
+    if (!page) continue;
+
+    const g   = edGeom(page, p);
+    const k   = g.k;                 // css px -> pt, uniform
+    const rot = degrees(g.rot);      // counter-rotation for every primitive
+
+    /* --- 1) redactions -------------------------------------------- */
+    for (const r of p.redacts) {
+      const c = hexToRgb01(r.c || '#ffffff');
+      const a = g.anchor(r.x, r.y, r.w, r.h);
+      page.drawRectangle({
+        x: a.x, y: a.y, width: r.w * k, height: r.h * k, rotate: rot,
+        color: rgb(c[0], c[1], c[2]),
+      });
+    }
+
+    /* --- 2) the freehand / highlight / whiteout raster -------------
+       One full-page PNG. Anchor at the VISUAL bottom-left corner and
+       counter-rotate, so it lands square on rotated pages.           */
+    if (p.dirty) {
+      const png = await doc.embedPng(p.anno.toDataURL('image/png'));
+      const a = g.anchor(0, 0, p.w, p.h);
+      page.drawImage(png, { x: a.x, y: a.y, width: g.vw, height: g.vh, rotate: rot });
+    }
+
+    /* --- 3) vector shapes ------------------------------------------ */
+    for (const obj of p.shapes) {
+      const l  = parseFloat(obj.style.left) || 0;
+      const t  = parseFloat(obj.style.top)  || 0;
+      const W0 = parseFloat(obj.style.width)  || obj.getBoundingClientRect().width;
+      const H0 = parseFloat(obj.style.height) || obj.getBoundingClientRect().height;
+      const col = hexToRgb01(obj.dataset.color || '#1d1d1f');
+      const borderColor = rgb(col[0], col[1], col[2]);
+      const sw = Math.max(0.4, (parseFloat(obj.dataset.stroke) || 3) * k);
+      const W = W0 * k, H = H0 * k;
+      const kind = obj.dataset.shape;
+
+      // corner-relative point inside the shape, in visual css px -> user space
+      const P = (fx, fy) => g.pt(l + fx * W0, t + fy * H0);
+
+      if (kind === 'rect') {
+        const a = g.anchor(l, t, W0, H0);
+        page.drawRectangle({ x: a.x, y: a.y, width: W, height: H,
+          rotate: rot, borderColor, borderWidth: sw });
+      } else if (kind === 'ellipse') {
+        const c = P(0.5, 0.5);
+        // radii follow the VISUAL axes; the rotation carries them round
+        page.drawEllipse({ x: c.x, y: c.y, rotate: rot,
+          xScale: Math.max(1, (W - sw) / 2), yScale: Math.max(1, (H - sw) / 2),
+          borderColor, borderWidth: sw });
+      } else if (kind === 'dot') {
+        const c = P(0.5, 0.5);
+        const r = Math.max(0.4, Math.min(W, H) / 2);
+        page.drawEllipse({ x: c.x, y: c.y, xScale: r, yScale: r,
+          color: rgb(col[0], col[1], col[2]) });
+      } else if (kind === 'check') {
+        const lw = Math.max(sw, 1.5);
+        const a = P(0.10, 0.55), b = P(0.40, 0.85), c = P(0.90, 0.15);
+        page.drawLine({ start: a, end: b, thickness: lw, color: borderColor });
+        page.drawLine({ start: b, end: c, thickness: lw, color: borderColor });
+      } else if (kind === 'cross') {
+        const lw = Math.max(sw, 1.5);
+        page.drawLine({ start: P(0.12, 0.12), end: P(0.88, 0.88), thickness: lw, color: borderColor });
+        page.drawLine({ start: P(0.88, 0.12), end: P(0.12, 0.88), thickness: lw, color: borderColor });
+      } else {  // line
+        const down = obj.dataset.dir !== '-1';
+        page.drawLine({
+          start: down ? P(0, 0) : P(0, 1),
+          end:   down ? P(1, 1) : P(1, 0),
+          thickness: sw, color: borderColor,
+        });
+      }
+    }
+
+    /* --- 4) text objects -------------------------------------------
+       Each line is anchored at its own baseline-start point, mapped
+       through g.pt(), then counter-rotated. That keeps multi-line text
+       upright and correctly stacked on rotated pages.                */
+    for (const obj of p.texts) {
+      const tEl = obj.querySelector('.ov-text');
+      if (!tEl) continue;
+      const content = winAnsiSafe(tEl.innerText);
+      if (!content.trim()) continue;
+
+      const fam    = obj.dataset.font || 'Helvetica';
+      const bold   = ['700', 'bold', '600', '800'].includes(tEl.style.fontWeight);
+      const italic = tEl.style.fontStyle === 'italic';
+      const underline = (tEl.style.textDecoration || '').includes('underline');
+      const align  = tEl.style.textAlign || 'left';
+      const font   = await getFont(fam, bold, italic);
+      const fontPx = parseFloat(tEl.style.fontSize) || 14;
+      const size   = fontPx * k;
+      const col    = hexToRgb01(rgbToHex(tEl.style.color) || '#1d1d1f');
+      const color  = rgb(col[0], col[1], col[2]);
+
+      const leftCss = (parseFloat(obj.style.left) || 0) + 7.5;   // padding
+      const topCss  = parseFloat(obj.style.top) || 0;
+      const lineHCss = fontPx * 1.25;
+      const baseOff = textBaselineOffset(fontPx, FONT_CSS[fam] || FONT_CSS.Helvetica,
+        bold ? '700' : '400', italic ? 'italic' : 'normal');
+      const boxWCss = (obj.dataset.fixedw && obj.style.width)
+        ? Math.max(10, (parseFloat(obj.style.width) - 12)) : null;
+      const boxW = boxWCss != null ? boxWCss * k : null;
+
+      let lines = content.split('\n');
+      if (boxW) {
+        const wrapped = [];
+        for (const ln of lines) {
+          let cur = '';
+          for (const word of ln.split(' ')) {
+            const test = cur ? cur + ' ' + word : word;
+            if (!cur || font.widthOfTextAtSize(test, size) <= boxW) cur = test;
+            else { wrapped.push(cur); cur = word; }
+          }
+          wrapped.push(cur);
+        }
+        lines = wrapped;
+      }
+
+      lines.forEach((line, li) => {
+        if (!line) return;
+        const lw = font.widthOfTextAtSize(line, size);
+        let dxCss = 0;
+        if (boxWCss && align === 'center') dxCss = (boxWCss - lw / k) / 2;
+        else if (boxWCss && align === 'right') dxCss = boxWCss - lw / k;
+
+        const bx = leftCss + dxCss;
+        const by = topCss + baseOff + li * lineHCss;   // baseline, visual css px
+        const a = g.pt(bx, by);
+        page.drawText(line, { x: a.x, y: a.y, size, font, color, rotate: rot });
+
+        if (underline && line.trim()) {
+          const uy = by + fontPx * 0.11;
+          const s0 = g.pt(bx, uy);
+          const s1 = g.pt(bx + lw / k, uy);
+          page.drawLine({ start: s0, end: s1,
+            thickness: Math.max(0.6, size / 16), color });
+        }
+      });
+    }
+
+    /* --- 5) image objects (signatures, stamps, logos) --------------- */
+    for (const obj of p.images) {
+      const img = obj.querySelector('img');
+      if (!img) continue;
+      const lCss = parseFloat(obj.style.left) || 0;
+      const tCss = parseFloat(obj.style.top)  || 0;
+
+      // width straight from the style when present: getBoundingClientRect
+      // is affected by any CSS transform on the page holder.
+      let wCss = parseFloat(obj.style.width);
+      if (!wCss || !isFinite(wCss)) {
+        const holderW = p.holder.getBoundingClientRect().width || p.w;
+        wCss = obj.getBoundingClientRect().width / (holderW / p.w);
+      }
+      const ratio = (img.naturalHeight && img.naturalWidth)
+        ? img.naturalHeight / img.naturalWidth : 1;
+      const hCss = parseFloat(obj.style.height) || wCss * ratio;
+
+      let embedded;
+      try {
+        embedded = /^data:image\/png|\.png($|\?)/i.test(img.src) ||
+                   (obj.dataset.mime || '').includes('png')
+          ? await doc.embedPng(img.src)
+          : await doc.embedJpg(img.src);
+      } catch (e) {
+        // wrong sniff, or a webp/gif that slipped through: re-encode via canvas
+        try {
+          const cv = document.createElement('canvas');
+          cv.width = img.naturalWidth || 1; cv.height = img.naturalHeight || 1;
+          cv.getContext('2d').drawImage(img, 0, 0);
+          embedded = await doc.embedPng(cv.toDataURL('image/png'));
+        } catch (e2) { LOG('image skipped', e2); continue; }
+      }
+
+      const a = g.anchor(lCss, tCss, wCss, hCss);
+      page.drawImage(embedded, {
+        x: a.x, y: a.y, width: wCss * k, height: hCss * k, rotate: rot,
+      });
+    }
+  }
+
+  return safeSave(doc);
+};
+
+/* ==================================================================
+   4. WATERMARK — rotation aware, always centred on the VISUAL page
+   ================================================================== */
+window.zenDrawWatermarkText = function (page, text, font, size, opacity, colorRgb) {
+  const g = pageGeom(page);
+  const tw = font.widthOfTextAtSize(text, size);
+  const rad = Math.PI / 4;
+  // centre of the rotated text at the VISUAL page centre
+  const cxV = g.vw / 2, cyV = g.vh / 2;
+  const dx = (tw / 2) * Math.cos(rad), dy = (tw / 2) * Math.sin(rad);
+  const startV = { x: cxV - dx, y: cyV + dy };        // visual, top-left origin
+  const a = g.pt(startV.x, startV.y);
+  page.drawText(text, {
+    x: a.x, y: a.y, size, font, color: colorRgb, opacity,
+    rotate: degrees((g.rot + 45) % 360),
+  });
+};
+window.zenFitWatermarkSize = function (page, text, font, scalePct) {
+  const g = pageGeom(page);
+  let size = 50 * scalePct;
+  const diag = Math.sqrt(g.vw * g.vw + g.vh * g.vh) * 0.7;
+  const tw = font.widthOfTextAtSize(text, size);
+  if (tw > diag) size *= diag / tw;
+  return size;
+};
+window.zenDrawWatermarkImage = function (page, img, scalePct, opacity) {
+  const g = pageGeom(page);
+  let w = Math.min(g.vw * 0.5 * scalePct, g.vw * 0.92);
+  let h = w * (img.height / img.width);
+  if (h > g.vh * 0.8) { h = g.vh * 0.8; w = h * (img.width / img.height); }
+  const a = g.anchor((g.vw - w) / 2, (g.vh - h) / 2, w, h);
+  page.drawImage(img, { x: a.x, y: a.y, width: w, height: h,
+    opacity, rotate: degrees(g.rot) });
+};
+window.zenDrawPageNumber = function (page, label, font, size, pos, colorRgb) {
+  const g = pageGeom(page);
+  const tw = font.widthOfTextAtSize(label, size);
+  let vx, vy;                                   // visual, top-left origin
+  const bottomY = g.vh - 24;                    // baseline 24pt off the foot
+  if      (pos === 'bc') { vx = (g.vw - tw) / 2; vy = bottomY; }
+  else if (pos === 'br') { vx = g.vw - tw - 36;  vy = bottomY; }
+  else if (pos === 'bl') { vx = 36;              vy = bottomY; }
+  else                   { vx = g.vw - tw - 36;  vy = 30; }
+  const a = g.pt(vx, vy);
+  page.drawText(label, { x: a.x, y: a.y, size, font,
+    color: colorRgb, rotate: degrees(g.rot) });
+};
+
+/* ==================================================================
+   5. IMAGE -> PDF — real page sizes, EXIF orientation, any format
+   ------------------------------------------------------------------
+   Before: a 4000 px photo produced a 4000 pt (55 inch) page, and
+   phone photos came out sideways because EXIF was ignored.
+   ================================================================== */
+window.procImg2Pdf = async function procImg2Pdf() {
+  const btn = document.getElementById('btn-img2pdf');
+  if (typeof busy === 'function') busy(btn, true, 'Creating…');
+  try {
+    if (!aux.img2pdf.length) throw new Error('Add at least one image first');
+    const doc = await PDFDocument.create();
+    const DPI = 96;                       // css reference density
+    const PT = 72 / DPI;                  // px -> pt
+    const A4 = { w: 595.28, h: 841.89 };
+    let skipped = 0;
+
+    for (const f of aux.img2pdf) {
+      let bitmap = null, buf = null, isPng = false;
+      try {
+        buf = await f.arrayBuffer();
+        // createImageBitmap honours EXIF orientation when asked
+        try {
+          bitmap = await createImageBitmap(new Blob([buf], { type: f.type || 'image/jpeg' }),
+            { imageOrientation: 'from-image' });
+        } catch (e) { bitmap = null; }
+
+        if (bitmap) {
+          const cv = document.createElement('canvas');
+          cv.width = bitmap.width; cv.height = bitmap.height;
+          const cx = cv.getContext('2d');
+          cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, cv.width, cv.height);
+          cx.drawImage(bitmap, 0, 0);
+          bitmap.close && bitmap.close();
+          // keep PNG for graphics with flat colour, JPEG for photos
+          const hasAlpha = /png|webp|gif/i.test(f.type || '');
+          buf = cv.toDataURL(hasAlpha ? 'image/png' : 'image/jpeg', 0.92);
+          isPng = hasAlpha;
+        } else {
+          isPng = /png/i.test(f.type || '');
+        }
+
+        const img = isPng ? await doc.embedPng(buf) : await doc.embedJpg(buf);
+
+        // natural size in points, then shrink to fit A4 if it overflows
+        let w = img.width * PT, h = img.height * PT;
+        const fit = Math.min(A4.w / w, A4.h / h, 1);
+        w *= fit; h *= fit;
+        // never emit a degenerate page
+        w = Math.max(1, w); h = Math.max(1, h);
+
+        const page = doc.addPage([w, h]);
+        page.drawImage(img, { x: 0, y: 0, width: w, height: h });
+      } catch (e) { skipped++; LOG('img2pdf skipped', f.name, e); }
+    }
+
+    if (!doc.getPageCount()) throw new Error('None of those images could be read');
+    const outBytes = await safeSave(doc);
+    pdfFiles.push({ name: 'images.pdf', bytes: outBytes, size: outBytes.length });
+    if (typeof refreshPdfLists === 'function') refreshPdfLists();
+    if (typeof busy === 'function') busy(btn, false);
+    if (skipped) toast(`${skipped} image${skipped > 1 ? 's' : ''} could not be read and were skipped`, 'err', 4200);
+    else toast('PDF created & added to your workspace', 'ok', 3200);
+    await chooseExport(outBytes, 'images', 'images.pdf');
+    return;
+  } catch (e) { toast(e.message, 'err', 4500); }
+  if (typeof busy === 'function') busy(btn, false);
+};
+
+/* ==================================================================
+   6. WORD -> PDF — stop dropping images
+   ------------------------------------------------------------------
+   Three separate leaks are closed here:
+     a) mammoth's default image handler drops anything it cannot inline
+        (EMF / WMF / x-emf, which Word emits constantly for pasted
+        charts and shapes). We install an explicit convertImage that
+        inlines EVERY part as base64 regardless of declared type, and
+        lets the browser decide whether it can decode it.
+     b) images inside TABLE cells were discarded — the table branch
+        only read td.textContent. Cells now render their images below
+        the table.
+     c) images that are the only child of a wrapper (Word float
+        containers, <figure>, nested <span>) were never reached because
+        the "paragraph that is just an image" test only looked one
+        level deep. Now it searches the whole subtree.
+   Word's own display size (cx/cy EMU) is also honoured when mammoth
+   exposes it, instead of assuming the raw pixel size.
+   ================================================================== */
+window.zenMammothOptions = function () {
+  return {
+    convertImage: mammoth.images.imgElement(function (image) {
+      return image.read('base64').then(function (b64) {
+        let ct = image.contentType || 'image/png';
+        // Word emits these for pasted vector art; browsers cannot decode
+        // them, but declaring png/jpeg lets the ones that are secretly
+        // rasterised still render, and the rest fail softly to a gap.
+        if (/emf|wmf|x-emf|x-wmf|octet-stream/i.test(ct)) ct = 'image/png';
+        const attrs = { src: 'data:' + ct + ';base64,' + b64 };
+        if (image.altText) attrs.alt = image.altText;
+        return attrs;
+      });
+    }),
+    styleMap: [
+      "p[style-name='Title'] => h1:fresh",
+      "p[style-name='Subtitle'] => h2:fresh",
+      "p[style-name='Heading 1'] => h1:fresh",
+      "p[style-name='Heading 2'] => h2:fresh",
+      "p[style-name='Heading 3'] => h3:fresh",
+      "r[style-name='Strong'] => strong",
+      "u => u",
+    ],
+    includeDefaultStyleMap: true,
+  };
+};
+
+window.procWord2Pdf = async function procWord2Pdf() {
+  const btn = document.getElementById('btn-word2pdf');
+  if (typeof busy === 'function') busy(btn, true, 'Converting…');
+  try {
+    if (!aux.word2pdf.length) throw new Error('Add a .docx file first');
+    const out = {};
+    for (const f of aux.word2pdf) {
+      const res = await mammoth.convertToHtml(
+        { arrayBuffer: await f.arrayBuffer() }, zenMammothOptions());
+      if (res.messages && res.messages.length) LOG('mammoth', f.name, res.messages);
+      out[`${baseName(f.name)}.pdf`] = await htmlToPdfBlob(res.value);
+    }
+    const names = Object.keys(out);
+    if (names.length === 1) {
+      if (typeof busy === 'function') busy(btn, false);
+      download(out[names[0]], names[0], 'application/pdf');
+      toast('Converted to PDF');
+      return;
+    }
+    await bulkDownload(out, 'word_to_pdf.zip');
+    toast('Converted to PDF');
+  } catch (e) { toast(e.message, 'err', 4500); }
+  if (typeof busy === 'function') busy(btn, false);
+};
+
+
+/* ==================================================================
+   7. WATERMARK + PAGE NUMBERS — rotation-aware replacements
+   ================================================================== */
+window.procWatermark = async function procWatermark(btn) {
+  const mode = segValue('wm-mode');
+  const opacity = +$('wm-opacity').value / 100;
+  const scalePct = +$('wm-scale').value / 100;
+  busy(btn, true, 'Stamping…');
+  try {
+    if (!pdfFiles.length) throw new Error('Open a PDF first');
+    let wmImageBytes = null, wmIsPng = false;
+    const wmText = ($('wm-text') ? $('wm-text').value.trim() : '');
+    if (mode === 'image') {
+      const f = $('wm-image-file').files[0];
+      if (!f) throw new Error('Choose a logo image first');
+      wmImageBytes = await f.arrayBuffer();
+      wmIsPng = f.type.includes('png');
+    } else if (!wmText) {
+      throw new Error('Enter the watermark text first');
+    }
+
+    const out = {};
+    for (const f of pdfFiles) {
+      const doc = await safeLoad(f.bytes);
+      const pages = doc.getPages();
+      if (mode === 'image') {
+        const img = wmIsPng ? await doc.embedPng(wmImageBytes) : await doc.embedJpg(wmImageBytes);
+        pages.forEach(page => zenDrawWatermarkImage(page, img, scalePct, opacity));
+      } else {
+        const font = await doc.embedFont(StandardFonts.HelveticaBold);
+        const safe = winAnsiSafe(wmText);
+        pages.forEach(page => {
+          const size = zenFitWatermarkSize(page, safe, font, scalePct);
+          zenDrawWatermarkText(page, safe, font, size, opacity, rgb(0.45, 0.45, 0.47));
+        });
+      }
+      out[`watermarked_${f.name}`] = await safeSave(doc);
+    }
+    const names = Object.keys(out);
+    if (names.length === 1) {
+      busy(btn, false);
+      const done = await chooseExport(out[names[0]], baseName(names[0]), names[0]);
+      if (done) toast('Watermark applied');
+      return;
+    }
+    await bulkDownload(out, 'watermarked.zip');
+    toast('Watermark applied to all files');
+  } catch (e) { toast(e.message, 'err', 4500); }
+  busy(btn, false);
+};
+
+window.procPageNumbers = async function procPageNumbers(btn) {
+  const fi = +$('pn-file').value;
+  const pos = $('pn-pos').value, fmt = $('pn-fmt').value;
+  const start = parseInt($('pn-start').value) || 1;
+  const size = parseInt($('pn-size').value) || 11;
+  busy(btn, true, 'Numbering…');
+  try {
+    if (!pdfFiles[fi]) throw new Error('Pick a PDF first');
+    const doc = await safeLoad(pdfFiles[fi].bytes);
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const pages = doc.getPages();
+    const total = pages.length;
+    pages.forEach((page, i) => {
+      const label = fmt === 'pn'
+        ? `Page ${start + i} of ${start + total - 1}`
+        : String(start + i);
+      zenDrawPageNumber(page, label, font, size, pos, rgb(0.25, 0.25, 0.27));
+    });
+    const bytes = await safeSave(doc);
+    busy(btn, false);
+    const done = await chooseExport(bytes, `numbered_${baseName(pdfFiles[fi].name)}`,
+      `numbered_${pdfFiles[fi].name}`);
+    if (done) toast('Page numbers added');
+    return;
+  } catch (e) { toast(e.message, 'err', 4500); }
+  busy(btn, false);
+};
+
+/* ==================================================================
+   8. WORD -> PDF LAYOUT — images in tables, nested images, page size
+   ------------------------------------------------------------------
+   Replaces htmlToPdfBlob. Fixes, in order of how often they bite:
+     a) an image nested more than one level deep (Word float wrappers,
+        <figure>, <span><img></span>) was never drawn — the old test was
+        `el.children.length === 1 && el.children[0].tagName === 'IMG'`.
+        Now every block is scanned for descendant <img> nodes.
+     b) images inside table cells were dropped entirely: the TABLE
+        branch read only td.textContent. They are now collected and
+        drawn under the table.
+     c) an image taller than the usable page was clipped off the bottom
+        instead of being scaled to fit.
+     d) images are decoded BEFORE layout, so a slow decode can no longer
+        let the y-cursor race ahead and overlap the next block.
+     e) page size follows the document: Letter when the .docx is US
+        Letter sized, A4 otherwise (previously always A4, which shifted
+        every margin on US documents).
+   ================================================================== */
+window.htmlToPdfBlob = async function htmlToPdfBlob(html, opts) {
+  opts = opts || {};
+  const { jsPDF } = window.jspdf;
+  const fmt = opts.format || 'a4';
+  const doc = new jsPDF({ unit: 'pt', format: fmt, compress: true });
+  const PW = doc.internal.pageSize.getWidth();
+  const PH = doc.internal.pageSize.getHeight();
+  const M = 56, pageBottom = PH - M, contentW = PW - M * 2;
+  let y = M;
+  const ensure = (need) => { if (y + need > pageBottom) { doc.addPage(); y = M; } };
+
+  const holder = document.createElement('div');
+  holder.innerHTML = html;
+
+  /* decode every image up-front and cache it, so layout never waits */
+  const imgCache = new Map();
+  const loadImg = (src) => {
+    if (imgCache.has(src)) return imgCache.get(src);
+    const pr = new Promise((res) => {
+      if (!src) return res(null);
+      const im = new Image();
+      im.onload = () => res(im.naturalWidth ? im : null);
+      im.onerror = () => res(null);
+      im.decoding = 'sync';
+      im.src = src;
+    });
+    imgCache.set(src, pr);
+    return pr;
+  };
+  const allSrcs = Array.from(holder.querySelectorAll('img'))
+    .map(n => n.getAttribute('src')).filter(Boolean);
+  await Promise.all(allSrcs.map(loadImg));
+
+  const drawImage = async (src) => {
+    if (!src) return false;
+    const im = await loadImg(src);
+    if (!im) return false;
+    const usableH = pageBottom - M;
+    let w = Math.min(contentW, im.naturalWidth * 0.75);   // 96dpi -> pt
+    let h = w * im.naturalHeight / im.naturalWidth;
+    if (h > usableH) { h = usableH; w = h * im.naturalWidth / im.naturalHeight; }
+    if (w > contentW) { w = contentW; h = w * im.naturalHeight / im.naturalWidth; }
+    ensure(h + 10);
+    try {
+      // re-encode through a canvas: jsPDF rejects some webp/emf payloads
+      let data = src, kind = /^data:image\/png/i.test(src) ? 'PNG' : 'JPEG';
+      if (!/^data:image\/(png|jpe?g)/i.test(src)) {
+        const cv = document.createElement('canvas');
+        cv.width = im.naturalWidth; cv.height = im.naturalHeight;
+        const cx = cv.getContext('2d');
+        cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, cv.width, cv.height);
+        cx.drawImage(im, 0, 0);
+        data = cv.toDataURL('image/png'); kind = 'PNG';
+      }
+      doc.addImage(data, kind, M, y, w, h);
+      y += h + 10;
+      return true;
+    } catch (e) { return false; }
+  };
+
+  const collectRuns = (node, style, runs) => {
+    node.childNodes.forEach(ch => {
+      if (ch.nodeType === 3) {
+        const t = ch.textContent.replace(/\s+/g, ' ');
+        if (t) runs.push({ text: t, ...style });
+      } else if (ch.nodeType === 1) {
+        if (ch.tagName === 'BR') { runs.push({ br: true }); return; }
+        if (ch.tagName === 'IMG') { runs.push({ img: ch.getAttribute('src') }); return; }
+        const s = { ...style };
+        const tn = ch.tagName;
+        if (tn === 'B' || tn === 'STRONG') s.bold = true;
+        if (tn === 'I' || tn === 'EM') s.italic = true;
+        if (tn === 'U' || tn === 'INS') s.underline = true;
+        if (tn === 'SUP' || tn === 'SUB') s.small = true;
+        collectRuns(ch, s, runs);
+      }
+    });
+  };
+
+  const drawRuns = async (runs, size, indent, prefix, spaceAfter) => {
+    const lineH = size * 1.45;
+    const left = M + indent;
+    ensure(lineH);
+    let x = left;
+    if (prefix) {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(size);
+      doc.text(prefix, x, y + size * 0.85);
+      x += doc.getTextWidth(prefix);
+    }
+    for (const r of runs) {
+      if (r.br) { y += lineH; ensure(lineH); x = left; continue; }
+      if (r.img) {
+        if (x > left) { y += lineH; x = left; }
+        await drawImage(r.img);
+        ensure(lineH); x = left;
+        continue;
+      }
+      doc.setFont('helvetica',
+        r.bold && r.italic ? 'bolditalic' : r.bold ? 'bold' : r.italic ? 'italic' : 'normal');
+      const fs = r.small ? size * 0.75 : size;
+      doc.setFontSize(fs);
+      const words = winAnsiSafe(r.text).split(/(\s+)/);
+      for (const w of words) {
+        if (!w) continue;
+        const ww = doc.getTextWidth(w);
+        if (x + ww > M + contentW && x > left) {
+          y += lineH; ensure(lineH); x = left;
+          if (/^\s+$/.test(w)) continue;
+        }
+        doc.text(w, x, y + size * 0.85);
+        if (r.underline && w.trim()) doc.line(x, y + size * 0.98, x + ww, y + size * 0.98);
+        x += ww;
+      }
+    }
+    y += lineH + spaceAfter;
+  };
+
+  const HEAD_SIZES = { H1: 20, H2: 16, H3: 13.5, H4: 12, H5: 11.5, H6: 11 };
+
+  const renderBlock = async (el, indent = 0, prefix = '') => {
+    const tag = el.tagName;
+
+    if (tag === 'TABLE') {
+      const head = [], body = [];
+      const cellImages = [];              // (b) keep images found in cells
+      el.querySelectorAll('tr').forEach(tr => {
+        const cells = Array.from(tr.children).map(td => {
+          td.querySelectorAll('img').forEach(im => {
+            const s = im.getAttribute('src'); if (s) cellImages.push(s);
+          });
+          return winAnsiSafe(td.textContent.trim());
+        });
+        if (tr.querySelector('th') && !head.length && !body.length) head.push(cells);
+        else body.push(cells);
+      });
+      if (head.length || body.length) {
+        ensure(48);
+        doc.autoTable({
+          head: head.length ? head : undefined,
+          body,
+          startY: y,
+          margin: { left: M, right: M },
+          styles: { fontSize: 9, textColor: [29, 29, 31], cellPadding: 4, overflow: 'linebreak' },
+          headStyles: { fillColor: [29, 29, 31] },
+          tableWidth: contentW,
+        });
+        y = doc.lastAutoTable.finalY + 14;
+      }
+      for (const s of cellImages) await drawImage(s);
+      return;
+    }
+
+    if (tag === 'UL' || tag === 'OL') {
+      let n = parseInt(el.getAttribute('start') || '1', 10) || 1;
+      for (const li of Array.from(el.children)) {
+        await renderBlock(li, indent + 18, tag === 'OL' ? `${n++}.  ` : '•  ');
+      }
+      y += 4;
+      return;
+    }
+
+    if (tag === 'HR') { ensure(14); doc.setDrawColor(200); doc.line(M, y + 6, M + contentW, y + 6); y += 16; return; }
+
+    // (a) a block whose only real content is imagery, at ANY depth
+    const imgs = el.querySelectorAll ? Array.from(el.querySelectorAll('img')) : [];
+    if (imgs.length && !el.textContent.trim()) {
+      for (const im of imgs) await drawImage(im.getAttribute('src'));
+      return;
+    }
+
+    const size = HEAD_SIZES[tag] || 11;
+    const isHeading = !!HEAD_SIZES[tag];
+    const runs = [];
+    collectRuns(el, { bold: isHeading }, runs);
+    if (!runs.length) {
+      // still emit any imagery this block carried
+      for (const im of imgs) await drawImage(im.getAttribute('src'));
+      y += 6; return;
+    }
+    if (isHeading) ensure(size * 2.2);
+    await drawRuns(runs, size, indent, prefix, isHeading ? 10 : 5);
+  };
+
+  const blocks = holder.children.length ? Array.from(holder.children) : [];
+  if (!blocks.length && holder.textContent.trim()) {
+    const runs = [];
+    collectRuns(holder, {}, runs);
+    await drawRuns(runs, 11, 0, '', 5);
+  }
+  for (const el of blocks) await renderBlock(el);
+  return doc.output('blob');
+};
+
+LOG('geometry fix pack active');
+})();
+
+</script>
+<!-- ZENPDF-GEOMETRY-FIX:END -->
 </body>
 </html>
