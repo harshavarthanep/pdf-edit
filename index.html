@@ -2903,9 +2903,9 @@ window.zpFindBlanks = findBlanks;
    The previous pipeline was:  mammoth.convertToHtml()  ->  htmlToPdfBlob()
    Two things are structurally impossible in that pipeline:
 
-     1. HEADER / FOOTER LOGOS.  mammoth only ever reads word/document.xml.
+     1. HEADER / FOOTER S.  mammoth only ever reads word/document.xml.
         Headers and footers live in separate parts (word/header1.xml,
-        word/footer1.xml ...).  mammoth never opens them, so the logo was
+        word/footer1.xml ...).  mammoth never opens them, so the  was
         not "failing to draw" — it was never in the HTML to begin with.
 
      2. ALIGNMENT.  mammoth deliberately emits semantic, style-free HTML.
@@ -3160,7 +3160,7 @@ function pixelSize(u8) {
   return null;
 }
 /* ---- EMF / WMF rescue ------------------------------------------------
-   Word stores pasted logos, Excel charts and Visio shapes as EMF or WMF
+   Word stores pasted s, Excel charts and Visio shapes as EMF or WMF
    metafiles.  Browsers cannot decode either, which is why those images
    silently vanished.  Almost every such metafile carries a device-
    independent bitmap (DIB) inside it — that is what Word itself shows on
@@ -3250,7 +3250,7 @@ function scanDib(u8) {
 /* EMF / WMF are vector metafiles the browser cannot decode.  Word almost
    always stores a raster copy INSIDE them (that is how it previews them),
    so we look for an embedded PNG or JPEG payload and lift it out.  This is
-   what rescues most pasted logos and Excel charts. */
+   what rescues most pasted s and Excel charts. */
 function rasterInsideMetafile(u8) {
   const n = u8.length;
   try {
@@ -4444,7 +4444,7 @@ function splitSections(body) {
 
 /* build the blocks of a header/footer part, with that part's OWN rels —
    this is the step the old mammoth pipeline never performed, which is
-   exactly why header logos disappeared */
+   exactly why header s disappeared */
 async function buildHF(pkg, partPath, baseCtx) {
   if (!partPath) return null;
   const txt = await pkg.text(partPath);
@@ -4525,7 +4525,7 @@ async function docxToPdfBlob(arrayBuffer, opts) {
     sections.push(sect);
   }
   /* sections after the first inherit headers/footers unless they define
-     their own — Word's real behaviour, and the reason page 2's logo used
+     their own — Word's real behaviour, and the reason page 2's  used
      to vanish in naive converters */
   for (let i = 1; i < sections.length; i++) {
     const prev = sections[i - 1];
@@ -4588,7 +4588,7 @@ async function paintPdf(model, opts) {
     if (sIdx > 0 && sec.type !== 'continuous') {
       doc.addPage([sec.w, sec.h], sec.w > sec.h ? 'landscape' : 'portrait');
     }
-    /* how much room do the header and footer actually need?  If the logo
+    /* how much room do the header and footer actually need?  If the 
        is taller than the header margin, push the body down instead of
        letting them collide. */
     const contentW = Math.max(40, sec.w - sec.mar.left - sec.mar.right);
@@ -11001,7 +11001,7 @@ Z.launchTool = launchTool;
 
 /* ---------- sidebar & tab bar ---------- */
 function renderShell() {
-  $('#sidebar').innerHTML = `<div class="brand"><img src="${LOGO}" alt=""><div><b>ZenPDF</b><small>Private · on-device</small></div></div>
+  $('#sidebar').innerHTML = `<div class="brand"><img src="${LOGO}" alt=""><div><b>ZenPDF Pro</b><small>Private · on-device</small></div></div>
     <button class="search-btn" data-palette>${icon('search', 'sm')}<span>Search tools & files</span><kbd>${/Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'} K</kbd></button>
     <button class="nav-item" data-nav="home">${icon('home')}Home</button>
     <button class="nav-item" data-nav="files">${icon('folder')}Files<span class="count" id="nav-count"></span></button>
